@@ -306,8 +306,21 @@ def _record_decision(
     attempt.match_method = decision.method
     attempt.match_score = decision.score
     attempt.decision_reason = decision.reason
+    equivalent_ids = {
+        candidate.external_work_id for candidate in decision.equivalent_candidates
+    }
     attempt.candidate_summary = [
-        _evaluation_dict(item) for item in decision.evaluations
+        _evaluation_dict(
+            item,
+            relation=(
+                "selected"
+                if decision.candidate == item.candidate
+                else "equivalent"
+                if item.candidate.external_work_id in equivalent_ids
+                else "rejected"
+            ),
+        )
+        for item in decision.evaluations
     ]
     for evaluation in decision.evaluations:
         selected = decision.candidate == evaluation.candidate
@@ -330,7 +343,16 @@ def _record_decision(
                 match_method=decision.method,
                 match_score=evaluation.score,
                 status=status,
-                evidence=_evaluation_dict(evaluation),
+                evidence=_evaluation_dict(
+                    evaluation,
+                    relation=(
+                        "selected"
+                        if selected
+                        else "equivalent"
+                        if evaluation.candidate.external_work_id in equivalent_ids
+                        else "rejected"
+                    ),
+                ),
             )
         )
 
@@ -478,18 +500,27 @@ def _merge_metadata(
 
     if metadata.cover_id:
         preferred = edition.cover_url is None
-        cover = CoverCandidate(
-            edition_id=edition.id,
-            provider_response_id=response.id,
-            provider=response.provider,
-            external_cover_id=metadata.cover_id,
-            small_url=metadata.cover_urls.get("small"),
-            medium_url=metadata.cover_urls.get("medium"),
-            large_url=metadata.cover_urls.get("large"),
-            status="preferred" if preferred else "candidate",
-            checked_at=_utc_now(),
+        existing_cover = session.scalar(
+            select(CoverCandidate).where(
+                CoverCandidate.edition_id == edition.id,
+                CoverCandidate.provider == response.provider,
+                CoverCandidate.external_cover_id == metadata.cover_id,
+            )
         )
-        session.add(cover)
+        if existing_cover is None:
+            session.add(
+                CoverCandidate(
+                    edition_id=edition.id,
+                    provider_response_id=response.id,
+                    provider=response.provider,
+                    external_cover_id=metadata.cover_id,
+                    small_url=metadata.cover_urls.get("small"),
+                    medium_url=metadata.cover_urls.get("medium"),
+                    large_url=metadata.cover_urls.get("large"),
+                    status="preferred" if preferred else "candidate",
+                    checked_at=_utc_now(),
+                )
+            )
         if metadata.cover_urls.get("medium"):
             _merge_scalar(
                 session,
@@ -626,9 +657,11 @@ def _complete_run(run: EnrichmentRun) -> None:
     run.status = "completed_with_errors" if run.failed_count else "completed"
 
 
-def _evaluation_dict(evaluation: Any) -> dict[str, Any]:
+def _evaluation_dict(evaluation: Any, *, relation: str | None = None) -> dict[str, Any]:
     result = asdict(evaluation)
     result["candidate"] = asdict(evaluation.candidate)
+    if relation is not None:
+        result["relation"] = relation
     return result
 
 

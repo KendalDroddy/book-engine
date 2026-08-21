@@ -45,6 +45,7 @@ class CandidateEvaluation:
     year_difference: int | None
     score: float
     conflicts: tuple[str, ...] = ()
+    work_signature: str = ""
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,7 @@ class MatchDecision:
     candidate: MetadataCandidate | None
     evaluations: tuple[CandidateEvaluation, ...]
     reason: str
+    equivalent_candidates: tuple[MetadataCandidate, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -66,6 +66,14 @@ def enrich(
                 f"{report.decision.candidate.external_work_id} "
                 f"({report.decision.score:.4f})"
             )
+        if report.decision.equivalent_candidates:
+            typer.echo(
+                "Equivalent provider records: "
+                + ", ".join(
+                    candidate.external_work_id
+                    for candidate in report.decision.equivalent_candidates
+                )
+            )
         for evaluation in report.decision.evaluations:
             typer.echo(
                 "Candidate: "

@@ -174,7 +174,7 @@ def test_enrichment_is_provenanced_and_idempotent(db_session: Session) -> None:
     assert _count(db_session, CoverCandidate) == 1
 
 
-def test_ambiguous_candidates_do_not_mutate_catalog(db_session: Session) -> None:
+def test_duplicate_provider_works_are_one_work_match(db_session: Session) -> None:
     _import_fixture(db_session)
     base = FakeProvider().candidates[0]
     other = MetadataCandidate(
@@ -190,13 +190,20 @@ def test_ambiguous_candidates_do_not_mutate_catalog(db_session: Session) -> None
 
     report = enrich_work(db_session, 1, provider)
 
-    assert report.status == "ambiguous"
-    assert provider.fetch_calls == 0
+    assert report.status == "succeeded"
+    assert report.decision is not None
+    assert report.decision.candidate == base
+    assert report.decision.equivalent_candidates == (other,)
+    assert provider.fetch_calls == 1
     work = db_session.get(Work, 1)
     assert work is not None
-    assert work.description is None
+    assert work.description == "A recorded description."
     assert _count(db_session, MetadataMatch) == 2
-    assert _count(db_session, MetadataClaim) == 19
+    equivalent_match = db_session.scalar(
+        select(MetadataMatch).where(MetadataMatch.external_work_id == "OL9999W")
+    )
+    assert equivalent_match is not None
+    assert equivalent_match.evidence["relation"] == "equivalent"
 
 
 def test_only_selected_candidate_is_recorded_as_accepted(db_session: Session) -> None:
@@ -280,7 +287,7 @@ def test_exact_isbn_with_conflicting_identity_is_not_accepted() -> None:
 
     assert decision.status == "missed"
     assert decision.candidate is None
-    assert "ISBN matched but primary author was materially different" in (
+    assert "ISBN matched but primary authors were materially different" in (
         decision.evaluations[0].conflicts
     )
 
@@ -306,10 +313,10 @@ def test_series_suffix_does_not_block_conservative_title_match() -> None:
     decision = decide_match(lookup, (candidate,))
 
     assert decision.status == "accepted"
-    assert decision.method == "title_author_year"
+    assert decision.method == "work_signature"
 
 
-def test_missing_candidate_year_cannot_satisfy_known_local_year() -> None:
+def test_missing_candidate_year_does_not_block_strong_work_identity() -> None:
     lookup = BookLookup(
         work_id=1,
         edition_id=1,
@@ -329,5 +336,139 @@ def test_missing_candidate_year_cannot_satisfy_known_local_year() -> None:
 
     decision = decide_match(lookup, (candidate,))
 
-    assert decision.status == "missed"
+    assert decision.status == "accepted"
+    assert decision.candidate == candidate
+
+
+def test_shortened_subtitle_is_safe_with_exact_isbn_and_author() -> None:
+    lookup = BookLookup(
+        work_id=1,
+        edition_id=1,
+        title="The Boys in the Light: A Story of Survival, Faith, and Brotherhood",
+        primary_author="Nina Willner",
+        publication_year=None,
+        isbn10=None,
+        isbn13="9780593471272",
+    )
+    candidate = MetadataCandidate(
+        external_work_id="OL-BOYS",
+        external_edition_id=None,
+        title="Boys in the Light",
+        authors=("Nina Willner",),
+        publication_year=2025,
+        identifiers={"isbn13": ("9780593471272",)},
+        matched_identifier=("isbn13", "9780593471272"),
+    )
+
+    decision = decide_match(lookup, (candidate,))
+
+    assert decision.status == "accepted"
+    assert decision.method == "exact_isbn"
+    assert decision.evaluations[0].title_similarity == 1.0
+
+
+def test_minor_year_difference_and_sparse_duplicate_do_not_block_work_match() -> None:
+    lookup = BookLookup(
+        work_id=1,
+        edition_id=1,
+        title="The Return of the King (The Lord of the Rings, #3)",
+        primary_author="J.R.R. Tolkien",
+        publication_year=1955,
+        isbn10=None,
+        isbn13=None,
+    )
+    rich_candidate = MetadataCandidate(
+        external_work_id="OL-RICH",
+        external_edition_id=None,
+        title="The Return of the King",
+        authors=("J.R.R. Tolkien",),
+        publication_year=1950,
+        identifiers={"isbn13": ("9780000000001", "9780000000002")},
+        cover_id="123",
+    )
+    sparse_duplicate = MetadataCandidate(
+        external_work_id="OL-SPARSE",
+        external_edition_id=None,
+        title="The Return of the King",
+        authors=("J.R.R. Tolkien",),
+        publication_year=None,
+    )
+
+    decision = decide_match(lookup, (sparse_duplicate, rich_candidate))
+
+    assert decision.status == "accepted"
+    assert decision.candidate == rich_candidate
+    assert decision.equivalent_candidates == (sparse_duplicate,)
+
+
+def test_distinct_plausible_work_signatures_remain_ambiguous() -> None:
+    lookup = BookLookup(
+        work_id=1,
+        edition_id=1,
+        title="A Great Story",
+        primary_author="Known Author",
+        publication_year=2020,
+        isbn10=None,
+        isbn13=None,
+    )
+    candidates = (
+        MetadataCandidate(
+            external_work_id="OL-STORY",
+            external_edition_id=None,
+            title="A Great Story",
+            authors=("Known Author",),
+            publication_year=2020,
+        ),
+        MetadataCandidate(
+            external_work_id="OL-STORIES",
+            external_edition_id=None,
+            title="A Great Story 2",
+            authors=("Known Author",),
+            publication_year=2020,
+        ),
+    )
+
+    decision = decide_match(lookup, candidates)
+
+    assert decision.status == "ambiguous"
     assert decision.candidate is None
+
+
+def test_materially_different_publication_variants_are_rejected() -> None:
+    lookup = BookLookup(
+        work_id=1,
+        edition_id=1,
+        title="The Return of the King",
+        primary_author="J.R.R. Tolkien",
+        publication_year=1955,
+        isbn10=None,
+        isbn13=None,
+    )
+    variants = (
+        MetadataCandidate(
+            external_work_id="OL-SPLIT",
+            external_edition_id=None,
+            title="The Return of the King [2/2]",
+            authors=("J.R.R. Tolkien",),
+            publication_year=1989,
+        ),
+        MetadataCandidate(
+            external_work_id="OL-SET",
+            external_edition_id=None,
+            title="The Lord of the Rings 3 Book Set",
+            authors=("J.R.R. Tolkien",),
+            publication_year=2020,
+        ),
+        MetadataCandidate(
+            external_work_id="OL-ADAPTATION",
+            external_edition_id=None,
+            title="The Return of the King Graphic Adaptation",
+            authors=("J.R.R. Tolkien",),
+            publication_year=2020,
+        ),
+    )
+
+    decision = decide_match(lookup, variants)
+
+    assert decision.status == "missed"
+    assert all(evaluation.conflicts for evaluation in decision.evaluations)
