@@ -457,8 +457,12 @@ def _merge_metadata(
                 response=response,
             )
 
+    seen_subjects: set[str] = set()
     for label in metadata.subjects:
         normalized = _normalize_label(label)
+        if normalized in seen_subjects:
+            continue
+        seen_subjects.add(normalized)
         concept = session.scalar(
             select(Concept).where(
                 Concept.kind == "subject", Concept.normalized_label == normalized
@@ -479,8 +483,12 @@ def _merge_metadata(
             )
         )
 
+    seen_series: set[str] = set()
     for series_name in metadata.series:
         normalized = _normalize_label(series_name)
+        if normalized in seen_series:
+            continue
+        seen_series.add(normalized)
         series = session.scalar(
             select(Series).where(Series.normalized_name == normalized)
         )

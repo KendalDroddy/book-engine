@@ -109,6 +109,9 @@ def _import_fixture(session: Session) -> None:
 def test_enrichment_is_provenanced_and_idempotent(db_session: Session) -> None:
     _import_fixture(db_session)
     provider = FakeProvider()
+    subjects = provider.work_payload["subjects"]
+    assert isinstance(subjects, list)
+    subjects.append("EXAMPLE SUBJECT")
 
     first = enrich_work(db_session, 1, provider)
 
@@ -399,6 +402,39 @@ def test_minor_year_difference_and_sparse_duplicate_do_not_block_work_match() ->
     assert decision.status == "accepted"
     assert decision.candidate == rich_candidate
     assert decision.equivalent_candidates == (sparse_duplicate,)
+
+
+def test_provider_title_and_contributor_variations_cluster_as_one_work() -> None:
+    lookup = BookLookup(
+        work_id=1,
+        edition_id=1,
+        title="The Longest Day: June 6, 1944",
+        primary_author="Cornelius Ryan",
+        publication_year=1959,
+        isbn10=None,
+        isbn13=None,
+    )
+    candidates = (
+        MetadataCandidate(
+            external_work_id="OL-COLON",
+            external_edition_id=None,
+            title="The Longest Day: June 6, 1944 D-Day",
+            authors=("Cornelius Ryan",),
+            publication_year=1959,
+        ),
+        MetadataCandidate(
+            external_work_id="OL-NO-COLON",
+            external_edition_id=None,
+            title="The Longest Day June 6 1944",
+            authors=("Contributor", "Cornelius Ryan"),
+            publication_year=1959,
+        ),
+    )
+
+    decision = decide_match(lookup, candidates)
+
+    assert decision.status == "accepted"
+    assert len(decision.equivalent_candidates) == 1
 
 
 def test_distinct_plausible_work_signatures_remain_ambiguous() -> None:

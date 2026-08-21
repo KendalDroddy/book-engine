@@ -2,7 +2,6 @@
 
 import re
 import unicodedata
-from collections import defaultdict
 from difflib import SequenceMatcher
 
 from book_engine.enrichment.types import (
@@ -82,12 +81,17 @@ def _decide_from_clusters(
     method: str,
     accepted_reason: str,
 ) -> MatchDecision:
-    clusters: dict[str, list[CandidateEvaluation]] = defaultdict(list)
+    clusters: list[list[CandidateEvaluation]] = []
     for evaluation in plausible:
-        clusters[evaluation.work_signature].append(evaluation)
+        for cluster in clusters:
+            if any(_same_work_cluster(evaluation, item) for item in cluster):
+                cluster.append(evaluation)
+                break
+        else:
+            clusters.append([evaluation])
 
     ranked_clusters = sorted(
-        clusters.values(),
+        clusters,
         key=lambda cluster: max(item.score for item in cluster),
         reverse=True,
     )
@@ -127,6 +131,19 @@ def _decide_from_clusters(
         evaluations=ranked,
         reason=f"{accepted_reason}{duplicate_note}",
         equivalent_candidates=equivalents,
+    )
+
+
+def _same_work_cluster(
+    left: CandidateEvaluation, right: CandidateEvaluation
+) -> bool:
+    if left.work_signature == right.work_signature:
+        return True
+    return (
+        left.title_similarity >= 0.96
+        and right.title_similarity >= 0.96
+        and left.author_similarity >= 0.95
+        and right.author_similarity >= 0.95
     )
 
 
