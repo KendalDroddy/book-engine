@@ -14,6 +14,12 @@ uv run alembic upgrade head
 uv run pytest
 ```
 
+After applying migrations, import a Goodreads library export with:
+
+```bash
+uv run book-engine import-goodreads data/imports/goodreads_library_export.csv
+```
+
 Application settings use environment variables prefixed with `BOOK_ENGINE_`.
 Copy `.env.example` to `.env` for local overrides. The default SQLite database is
 stored at `data/book_engine.db`; local databases and personal data are ignored by

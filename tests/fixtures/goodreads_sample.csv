@@ -1,0 +1,4 @@
+Book Id,Title,Author,Author l-f,Additional Authors,ISBN,ISBN13,My Rating,Publisher,Binding,Number of Pages,Year Published,Original Publication Year,Date Read,Date Added,Bookshelves,Bookshelves with positions,Exclusive Shelf,My Review,Spoiler,Private Notes,Read Count,Owned Copies
+1001,A Read Book,Primary  Author,"Author, Primary","Second  Author, Third Author","=""0123456789""","=""9780123456786""",5.0,Example Press,Hardcover,320,2020,2019,2026/08/18,2026/08/01,,,read,,,,1,0
+1002,An Unread Book,Another Author,"Author, Another",,"=""""","=""""",0,,ebook,210,2024,,,2026/08/02,to-read,to-read (#1),to-read,,,,0,0
+1003,A Reread Book,Repeat Author,"Author, Repeat",,"=""1111111111""","=""9781111111113""",4.0,Repeat Press,Paperback,150,2001,2000,2026/07/01,2020/01/01,,,read,,,,3,1

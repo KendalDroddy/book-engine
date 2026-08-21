@@ -43,6 +43,7 @@ class Edition(TimestampMixin, Base):
     format: Mapped[str | None] = mapped_column(String(100))
     publisher: Mapped[str | None] = mapped_column(String(300))
     publication_date: Mapped[date | None]
+    publication_year: Mapped[int | None]
     page_count: Mapped[int | None] = mapped_column(Integer)
     language: Mapped[str | None] = mapped_column(String(32))
     cover_url: Mapped[str | None] = mapped_column(String(2000))
