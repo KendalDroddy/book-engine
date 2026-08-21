@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "components/cover.html" import cover %}
+{% from "components/rating.html" import rating %}
+{% block title %}Library · Book Engine{% endblock %}
+{% block content %}
+<section class="library-hero">
+  <div>
+    <p class="eyebrow">Personal collection</p>
+    <h1>The library, remembered.</h1>
+    <p>Books read, underway, and waiting. Search the shelves or follow a subject.</p>
+  </div>
+  <div class="hero-count"><strong>{{ result.total }}</strong><span>matching book{% if result.total != 1 %}s{% endif %}</span></div>
+</section>
+
+<section class="library-shell">
+  <aside class="filter-panel" id="library-filters">
+    <div class="filter-heading"><h2>Refine</h2><a href="/library">Clear all</a></div>
+    <form action="/library" method="get" class="filter-form">
+      <input type="hidden" name="view" value="{{ result.filters.view }}">
+      <label class="search-field"><span>Search title or author</span><input type="search" name="q" value="{{ result.filters.q }}" placeholder="Try Tolkien or history"></label>
+      <label><span>Reading status</span><select name="status"><option value="">All statuses</option>{% for item in result.options.statuses %}<option value="{{ item.value }}"{% if result.filters.status == item.value %} selected{% endif %}>{{ item.label }} ({{ item.count }})</option>{% endfor %}</select></label>
+      <label><span>Shelf</span><select name="shelf"><option value="">All shelves</option>{% for item in result.options.shelves %}<option value="{{ item.value }}"{% if result.filters.shelf == item.value %} selected{% endif %}>{{ item.label }} ({{ item.count }})</option>{% endfor %}</select></label>
+      <label><span>Curated concept</span><select name="concept"><option value="">All concepts</option>{% for group in result.options.facets|groupby('category') %}<optgroup label="{{ group.grouper|title }}">{% for item in group.list %}<option value="{{ item.slug }}"{% if result.filters.concept == item.slug %} selected{% endif %}>{{ item.label }} ({{ item.count }})</option>{% endfor %}</optgroup>{% endfor %}</select></label>
+      <div class="year-fields"><label><span>From year</span><input type="number" name="year_from" value="{{ result.filters.year_from or '' }}" min="{{ result.options.min_year or 1 }}" max="{{ result.options.max_year or 9999 }}" placeholder="{{ result.options.min_year or '' }}"></label><label><span>To year</span><input type="number" name="year_to" value="{{ result.filters.year_to or '' }}" min="{{ result.options.min_year or 1 }}" max="{{ result.options.max_year or 9999 }}" placeholder="{{ result.options.max_year or '' }}"></label></div>
+      <label><span>Personal rating</span><select name="rating"><option value="">Any rating</option>{% for value in range(5, 0, -1) %}<option value="{{ value }}"{% if result.filters.rating == value %} selected{% endif %}>{{ value }} star{% if value != 1 %}s{% endif %}</option>{% endfor %}</select></label>
+      <label><span>Sort by</span><select name="sort"><option value="recent"{% if result.filters.sort == 'recent' %} selected{% endif %}>Recently read</option><option value="title"{% if result.filters.sort == 'title' %} selected{% endif %}>Title A–Z</option><option value="author"{% if result.filters.sort == 'author' %} selected{% endif %}>Author A–Z</option><option value="year_desc"{% if result.filters.sort == 'year_desc' %} selected{% endif %}>Publication year, newest</option><option value="year_asc"{% if result.filters.sort == 'year_asc' %} selected{% endif %}>Publication year, oldest</option><option value="rating"{% if result.filters.sort == 'rating' %} selected{% endif %}>Highest rated</option></select></label>
+      <button class="button button--primary" type="submit">Apply filters</button>
+    </form>
+  </aside>
+
+  <div class="library-results">
+    <div class="result-toolbar">
+      <button class="filter-toggle button" type="button" data-filter-toggle aria-controls="library-filters" aria-expanded="false">Filters</button>
+      <p><strong>{{ result.total }}</strong> result{% if result.total != 1 %}s{% endif %}{% if result.total_pages > 1 %} · page {{ result.page }} of {{ result.total_pages }}{% endif %}</p>
+      <div class="view-toggle" aria-label="Display style"><a href="{{ query_url(request, view='grid', page=1) }}"{% if result.filters.view == 'grid' %} aria-current="true"{% endif %}>Grid</a><a href="{{ query_url(request, view='list', page=1) }}"{% if result.filters.view == 'list' %} aria-current="true"{% endif %}>List</a></div>
+    </div>
+
+    {% if result.books %}
+    <div class="book-collection book-collection--{{ result.filters.view }}">
+      {% for book in result.books %}
+      <article class="book-card">
+        <a class="book-cover-link" href="/books/{{ book.id }}">{{ cover(book) }}</a>
+        <div class="book-card-body">
+          <div class="card-kicker"><span class="status status--{{ book.status }}">{{ status_label(book.status) }}</span>{% if book.year %}<span>{{ book.year }}</span>{% endif %}</div>
+          <h2><a href="/books/{{ book.id }}">{{ book.title }}</a></h2>
+          <p class="book-author">{{ book.author }}</p>
+          <div class="card-rating">{{ rating(book.rating) }}</div>
+          {% if book.description_excerpt %}<p class="card-description">{{ book.description_excerpt }}</p>{% endif %}
+          {% if book.facets %}<ul class="chip-list" aria-label="Concepts">{% for facet in book.facets %}<li><a href="/library?concept={{ facet.slug }}">{{ facet.label }}</a></li>{% endfor %}</ul>{% endif %}
+          {% if book.last_read_on %}<p class="read-date">Finished {{ book.last_read_on.strftime('%b %-d, %Y') }}</p>{% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state"><span aria-hidden="true">∅</span><h2>No books found</h2><p>Try widening the year range or clearing one of the filters.</p><a class="button" href="/library">Return to the full library</a></div>
+    {% endif %}
+
+    {% if result.total_pages > 1 %}
+    <nav class="pagination" aria-label="Pagination">
+      {% if result.page > 1 %}<a href="{{ query_url(request, page=result.page-1) }}">← Previous</a>{% else %}<span></span>{% endif %}
+      <span>Page {{ result.page }} of {{ result.total_pages }}</span>
+      {% if result.page < result.total_pages %}<a href="{{ query_url(request, page=result.page+1) }}">Next →</a>{% else %}<span></span>{% endif %}
+    </nav>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

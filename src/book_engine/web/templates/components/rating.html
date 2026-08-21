@@ -1,0 +1,3 @@
+{% macro rating(value) -%}
+{% if value %}<span class="rating" aria-label="Rated {{ value }} out of 5"><span aria-hidden="true">{{ '★' * value }}{{ '☆' * (5-value) }}</span></span>{% else %}<span class="muted">Not rated</span>{% endif %}
+{%- endmacro %}

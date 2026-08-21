@@ -20,6 +20,15 @@ After applying migrations, import a Goodreads library export with:
 uv run book-engine import-goodreads data/imports/goodreads_library_export.csv
 ```
 
+Build the reviewed browse facets after enrichment, then start the local library:
+
+```bash
+uv run book-engine sync-browse-facets
+uv run book-engine serve
+```
+
+The server-rendered browser is available at <http://127.0.0.1:8000/library>.
+
 Application settings use environment variables prefixed with `BOOK_ENGINE_`.
 Copy `.env.example` to `.env` for local overrides. The default SQLite database is
 stored at `data/book_engine.db`; local databases and personal data are ignored by

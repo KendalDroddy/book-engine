@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Metadata audit · {{ provenance.title }}{% endblock %}
+{% block content %}
+<article class="audit-page">
+  <a class="back-link" href="/books/{{ provenance.work_id }}">← Back to book</a>
+  <p class="eyebrow">Metadata audit</p><h1>{{ provenance.title }}</h1>
+  <p class="audit-intro">This diagnostic view keeps source history inspectable without mixing it into the reading experience.</p>
+  <div class="audit-summary"><div><strong>{{ provenance.accepted_matches }}</strong><span>accepted matches</span></div><div><strong>{{ provenance.provider_responses }}</strong><span>provider responses</span></div><div><strong>{{ provenance.concept_claims }}</strong><span>subject claims</span></div></div>
+  <section class="claim-section"><h2>Field claims</h2>{% if provenance.claims %}<div class="table-scroll"><table><thead><tr><th>Field</th><th>Value</th><th>Source</th><th>Status</th><th>Reason</th></tr></thead><tbody>{% for claim in provenance.claims %}<tr><td>{{ claim.field_name|replace('_', ' ') }}</td><td class="claim-value">{{ claim.value }}</td><td>{{ claim.provider }}</td><td><span class="claim-status claim-status--{{ claim.status }}">{{ claim.status }}</span></td><td>{{ claim.reason or '—' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p>No field claims are recorded.</p>{% endif %}</section>
+</article>
+{% endblock %}

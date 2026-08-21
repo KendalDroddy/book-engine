@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "components/cover.html" import cover %}
+{% from "components/rating.html" import rating %}
+{% block title %}{{ book.title }} · Book Engine{% endblock %}
+{% block content %}
+<article class="detail-page">
+  <a class="back-link" href="/library">← Back to library</a>
+  <header class="detail-hero">
+    <div class="detail-cover">{{ cover(book, 'detail') }}</div>
+    <div class="detail-intro">
+      <p class="eyebrow">{{ status_label(book.status) }}{% if book.original_publication_year %} · {{ book.original_publication_year }}{% endif %}</p>
+      <h1>{{ book.title }}</h1>
+      {% if book.subtitle and book.subtitle not in book.title %}<p class="subtitle">{{ book.subtitle }}</p>{% endif %}
+      <p class="detail-author">by {{ book.authors[0] if book.authors else 'Unknown author' }}</p>
+      {% if book.authors|length > 1 %}<p class="contributors">with {{ book.authors[1:]|join(', ') }}</p>{% endif %}
+      <div class="detail-rating">{{ rating(book.rating) }}</div>
+      {% if book.facets %}<ul class="chip-list chip-list--large">{% for facet in book.facets %}<li><a href="/library?concept={{ facet.slug }}">{{ facet.label }}</a></li>{% endfor %}</ul>{% endif %}
+    </div>
+    <aside class="reading-card">
+      <p class="eyebrow">My reading record</p>
+      <dl>
+        <div><dt>Status</dt><dd>{{ status_label(book.status) }}</dd></div>
+        <div><dt>Rating</dt><dd>{{ book.rating ~ ' / 5' if book.rating else 'Not rated' }}</dd></div>
+        {% if book.first_read_on %}<div><dt>First read</dt><dd>{{ book.first_read_on.strftime('%B %-d, %Y') }}</dd></div>{% endif %}
+        {% if book.last_read_on %}<div><dt>Last read</dt><dd>{{ book.last_read_on.strftime('%B %-d, %Y') }}</dd></div>{% endif %}
+        {% if book.shelves %}<div><dt>Shelves</dt><dd>{{ book.shelves|join(', ') }}</dd></div>{% endif %}
+      </dl>
+    </aside>
+  </header>
+
+  <div class="detail-layout">
+    <div class="detail-main">
+      <section class="prose-section"><p class="section-number">01</p><h2>About the book</h2>{% if book.description %}<div class="description">{% for paragraph in book.description.split('\n') if paragraph.strip() %}<p>{{ paragraph }}</p>{% endfor %}</div>{% else %}<p class="missing-copy">No description is available yet. The reading record and publication details are still preserved below.</p>{% endif %}</section>
+      {% if book.reading_events %}<section class="prose-section"><p class="section-number">02</p><h2>Reading history</h2><ol class="timeline">{% for event in book.reading_events %}<li><span></span><div><strong>{% if event.finished_on %}Finished {{ event.finished_on.strftime('%B %-d, %Y') }}{% else %}Reading date unavailable{% endif %}</strong>{% if event.started_on %}<p>Started {{ event.started_on.strftime('%B %-d, %Y') }}</p>{% endif %}<small>{{ event.source|title }} record</small></div></li>{% endfor %}</ol></section>{% endif %}
+      {% if book.notes %}<section class="prose-section"><p class="section-number">03</p><h2>Personal notes</h2><p>{{ book.notes }}</p></section>{% endif %}
+    </div>
+    <aside class="metadata-rail">
+      <section><h2>Publication</h2>{% for edition in book.editions %}<dl class="metadata-list">{% if edition.publisher %}<div><dt>Publisher</dt><dd>{{ edition.publisher }}</dd></div>{% endif %}{% if edition.publication_year %}<div><dt>Edition year</dt><dd>{{ edition.publication_year }}</dd></div>{% endif %}{% if edition.page_count %}<div><dt>Length</dt><dd>{{ edition.page_count }} pages</dd></div>{% endif %}{% if edition.format %}<div><dt>Format</dt><dd>{{ edition.format }}</dd></div>{% endif %}{% if edition.language %}<div><dt>Language</dt><dd>{{ edition.language|upper }}</dd></div>{% endif %}{% if book.series %}<div><dt>Series / collection</dt><dd>{{ book.series|join(', ') }}</dd></div>{% endif %}</dl>{% endfor %}</section>
+      {% if book.additional_subjects %}<details class="subjects-disclosure"><summary>Additional catalog subjects</summary><p>Original provider headings can be broad or edition-specific.</p><ul class="subject-list">{% for subject in book.additional_subjects %}<li>{{ subject }}</li>{% endfor %}</ul></details>{% endif %}
+      {% if book.editions and book.editions[0].identifiers %}<details><summary>Identifiers</summary><dl class="identifier-list">{% for scheme, value in book.editions[0].identifiers %}<div><dt>{{ scheme|replace('_', ' ')|upper }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl></details>{% endif %}
+      <a class="provenance-link" href="/books/{{ book.id }}/provenance">Inspect metadata provenance →</a>
+    </aside>
+  </div>
+</article>
+{% endblock %}

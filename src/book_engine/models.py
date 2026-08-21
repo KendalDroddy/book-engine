@@ -20,6 +20,7 @@ from book_engine.library.models import (
     ReadingEvent,
     Shelf,
 )
+from book_engine.web.models import BrowseFacet, ConceptFacetMapping
 
 __all__ = [
     "Author",
@@ -43,4 +44,6 @@ __all__ = [
     "WorkAuthor",
     "WorkConceptClaim",
     "WorkSeriesClaim",
+    "BrowseFacet",
+    "ConceptFacetMapping",
 ]

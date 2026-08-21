@@ -1,0 +1,11 @@
+{% macro cover(book, size='card') -%}
+<div class="cover cover--{{ size }} cover-tone-{{ (book.id % 6) + 1 }}">
+  <div class="cover-fallback" aria-hidden="true">
+    <span>{{ book.title[:1] }}</span>
+    <small>{{ book.title }}</small>
+  </div>
+  {% if book.cover_url %}
+  <img src="{{ book.cover_url }}" alt="Cover of {{ book.title }}" width="360" height="540" loading="lazy" decoding="async" onerror="this.hidden=true">
+  {% endif %}
+</div>
+{%- endmacro %}

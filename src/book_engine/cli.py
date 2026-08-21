@@ -10,6 +10,7 @@ from book_engine.db import SessionLocal
 from book_engine.enrichment.providers.openlibrary import OpenLibraryProvider
 from book_engine.enrichment.service import enrich_work
 from book_engine.importing.goodreads import import_goodreads_csv
+from book_engine.web.facets import sync_browse_facets
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -92,6 +93,27 @@ def enrich(
     )
     if report.error:
         typer.echo(f"Error: {report.error}")
+
+
+@app.command("sync-browse-facets")
+def sync_facets() -> None:
+    """Build the reviewed browse taxonomy from preserved provider concepts."""
+    with SessionLocal() as session:
+        facet_count, mapping_count = sync_browse_facets(session)
+    typer.echo(f"Facets: {facet_count}")
+    typer.echo(f"Concept mappings: {mapping_count}")
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8000, "--port", min=1, max=65535),
+    reload: bool = typer.Option(False, "--reload"),
+) -> None:
+    """Run the local library browser."""
+    import uvicorn
+
+    uvicorn.run("book_engine.web.app:app", host=host, port=port, reload=reload)
 
 
 if __name__ == "__main__":
