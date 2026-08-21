@@ -1,0 +1,7 @@
+{
+  "key": "/works/OL1000W",
+  "title": "A Read Book",
+  "description": {"type": "/type/text", "value": "A recorded description."},
+  "subjects": ["Example subject", {"name": "Structured subject"}],
+  "covers": [123456]
+}

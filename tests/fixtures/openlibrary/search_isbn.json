@@ -1,0 +1,15 @@
+{
+  "numFound": 1,
+  "start": 0,
+  "numFoundExact": true,
+  "docs": [
+    {
+      "key": "/works/OL1000W",
+      "title": "A Read Book",
+      "author_name": ["Primary Author"],
+      "first_publish_year": 2019,
+      "isbn": ["0123456789", "9780123456786"],
+      "cover_i": 123456
+    }
+  ]
+}

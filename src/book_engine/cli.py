@@ -5,7 +5,10 @@ from pathlib import Path
 import typer
 
 from book_engine import __version__
+from book_engine.config import get_settings
 from book_engine.db import SessionLocal
+from book_engine.enrichment.providers.openlibrary import OpenLibraryProvider
+from book_engine.enrichment.service import enrich_work
 from book_engine.importing.goodreads import import_goodreads_csv
 
 app = typer.Typer(no_args_is_help=True)
@@ -33,6 +36,54 @@ def import_goodreads(path: Path) -> None:
     typer.echo(f"Unchanged: {report.unchanged}")
     typer.echo(f"Ambiguous: {report.ambiguous}")
     typer.echo(f"Failed: {report.failed}")
+
+
+@app.command("enrich")
+def enrich(
+    work_id: int = typer.Option(..., "--work-id", min=1),
+    refresh: bool = typer.Option(False, "--refresh"),
+) -> None:
+    """Enrich one canonical work with Open Library metadata."""
+    settings = get_settings()
+    provider = OpenLibraryProvider(
+        contact_email=settings.openlibrary_contact_email,
+        timeout_seconds=settings.openlibrary_timeout_seconds,
+    )
+    with SessionLocal() as session:
+        try:
+            report = enrich_work(session, work_id, provider, refresh=refresh)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+    typer.echo(f"Enrichment run: {report.run_id}")
+    typer.echo(f"Work: {report.work_id}")
+    typer.echo(f"Status: {report.status}")
+    if report.decision:
+        typer.echo(f"Decision: {report.decision.method} - {report.decision.reason}")
+        if report.decision.candidate:
+            typer.echo(
+                "Match: "
+                f"{report.decision.candidate.external_work_id} "
+                f"({report.decision.score:.4f})"
+            )
+        for evaluation in report.decision.evaluations:
+            typer.echo(
+                "Candidate: "
+                f"{evaluation.candidate.external_work_id} | "
+                f"{evaluation.candidate.title} | score={evaluation.score:.4f} | "
+                f"isbn={evaluation.isbn_match} | "
+                f"title={evaluation.title_similarity:.4f} | "
+                f"author={evaluation.author_similarity:.4f} | "
+                f"year_delta={evaluation.year_difference} | "
+                f"conflicts={list(evaluation.conflicts)}"
+            )
+    typer.echo(f"Supplied: {', '.join(report.supplied_fields) or 'none'}")
+    typer.echo(f"Accepted: {', '.join(report.accepted_fields) or 'none'}")
+    typer.echo(
+        f"Retained as candidates: {', '.join(report.candidate_fields) or 'none'}"
+    )
+    if report.error:
+        typer.echo(f"Error: {report.error}")
 
 
 if __name__ == "__main__":

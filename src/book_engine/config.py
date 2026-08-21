@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/book_engine.db"
     sql_echo: bool = False
+    openlibrary_contact_email: str | None = None
+    openlibrary_timeout_seconds: float = 15.0
 
 
 @lru_cache

@@ -101,6 +101,12 @@ class Identifier(TimestampMixin, Base):
     scheme: Mapped[str] = mapped_column(String(50))
     value: Mapped[str] = mapped_column(String(300))
     source: Mapped[str] = mapped_column(String(100))
+    import_record_id: Mapped[int | None] = mapped_column(
+        ForeignKey("import_records.id", ondelete="SET NULL")
+    )
+    provider_response_id: Mapped[int | None] = mapped_column(
+        ForeignKey("provider_responses.id", ondelete="SET NULL")
+    )
 
     work: Mapped[Work | None] = relationship(back_populates="identifiers")
     edition: Mapped[Edition | None] = relationship(back_populates="identifiers")

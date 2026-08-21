@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from book_engine.catalog.models import Author, Edition, Identifier, Work, WorkAuthor
+from book_engine.enrichment.models import MetadataClaim
 from book_engine.importing.models import ImportRecord, ImportRun
 from book_engine.library.models import (
     LibraryEntry,
@@ -155,21 +156,22 @@ def import_goodreads_csv(
             )
 
         counts[resolution.status] += 1
-        session.add(
-            ImportRecord(
-                import_run_id=run.id,
-                source_row_number=row.row_number,
-                source_record_key=row.book_id,
-                raw_payload=row.raw,
-                raw_payload_checksum=_payload_checksum(row.raw),
-                work_id=resolution.work.id if resolution.work is not None else None,
-                edition_id=(
-                    resolution.edition.id if resolution.edition is not None else None
-                ),
-                resolution_status=resolution.status,
-                resolution_notes=resolution.notes,
-            )
+        import_record = ImportRecord(
+            import_run_id=run.id,
+            source_row_number=row.row_number,
+            source_record_key=row.book_id,
+            raw_payload=row.raw,
+            raw_payload_checksum=_payload_checksum(row.raw),
+            work_id=resolution.work.id if resolution.work is not None else None,
+            edition_id=(
+                resolution.edition.id if resolution.edition is not None else None
+            ),
+            resolution_status=resolution.status,
+            resolution_notes=resolution.notes,
         )
+        session.add(import_record)
+        session.flush()
+        _record_goodreads_provenance(session, import_record, resolution)
 
     run.created_rows = counts["created"]
     run.updated_rows = counts["updated"]
@@ -448,6 +450,79 @@ def _ensure_identifier(
         Identifier(edition=edition, scheme=scheme, value=value, source="goodreads_csv")
     )
     return True
+
+
+def _record_goodreads_provenance(
+    session: Session, import_record: ImportRecord, resolution: Resolution
+) -> None:
+    if resolution.work is None or resolution.edition is None:
+        return
+    for identifier in session.scalars(
+        select(Identifier).where(
+            Identifier.source == "goodreads_csv",
+            (
+                (Identifier.work_id == resolution.work.id)
+                | (Identifier.edition_id == resolution.edition.id)
+            ),
+            Identifier.import_record_id.is_(None),
+        )
+    ):
+        identifier.import_record_id = import_record.id
+
+    for owner, field_name, value in (
+        (resolution.work, "title", resolution.work.title),
+        (
+            resolution.work,
+            "original_publication_year",
+            resolution.work.original_publication_year,
+        ),
+        (resolution.edition, "title", resolution.edition.title),
+        (resolution.edition, "format", resolution.edition.format),
+        (resolution.edition, "publisher", resolution.edition.publisher),
+        (
+            resolution.edition,
+            "publication_date",
+            resolution.edition.publication_date,
+        ),
+        (
+            resolution.edition,
+            "publication_year",
+            resolution.edition.publication_year,
+        ),
+        (resolution.edition, "page_count", resolution.edition.page_count),
+        (resolution.edition, "language", resolution.edition.language),
+    ):
+        if value is None:
+            continue
+        work_id = owner.id if isinstance(owner, Work) else None
+        edition_id = owner.id if isinstance(owner, Edition) else None
+        existing = session.scalar(
+            select(MetadataClaim).where(
+                MetadataClaim.work_id == work_id,
+                MetadataClaim.edition_id == edition_id,
+                MetadataClaim.field_name == field_name,
+                MetadataClaim.status == "accepted",
+            )
+        )
+        if existing is not None:
+            continue
+        serialized = value.isoformat() if isinstance(value, date) else value
+        session.add(
+            MetadataClaim(
+                work_id=work_id,
+                edition_id=edition_id,
+                field_name=field_name,
+                value_json=serialized,
+                normalized_value=str(serialized).casefold(),
+                source_kind="goodreads_import",
+                import_record_id=import_record.id,
+                provider="goodreads_csv",
+                confidence=1.0,
+                status="accepted",
+                selection_reason="Canonical value imported from Goodreads",
+                observed_at=import_record.created_at,
+            )
+        )
 
 
 def _set(entity: Any, attribute: str, value: Any) -> bool:

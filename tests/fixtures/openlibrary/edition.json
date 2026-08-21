@@ -1,0 +1,14 @@
+{
+  "key": "/books/OL2000M",
+  "title": "A Read Book",
+  "works": [{"key": "/works/OL1000W"}],
+  "publishers": ["Provider Press"],
+  "publish_date": "October 1, 2020",
+  "number_of_pages": 321,
+  "languages": [{"key": "/languages/eng"}],
+  "isbn_10": ["0123456789"],
+  "isbn_13": ["9780123456786"],
+  "oclc_numbers": ["12345"],
+  "series": ["Example Series, #1"],
+  "covers": [123456]
+}

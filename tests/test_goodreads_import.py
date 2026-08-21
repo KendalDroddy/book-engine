@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from book_engine.catalog.models import Author, Edition, Identifier, Work, WorkAuthor
+from book_engine.enrichment.models import MetadataClaim
 from book_engine.importing.goodreads import import_goodreads_csv, parse_goodreads_csv
 from book_engine.importing.models import ImportRecord, ImportRun
 from book_engine.library.models import LibraryEntry, ReadingEvent, Shelf
@@ -47,6 +48,7 @@ def test_import_is_audited_and_idempotent(db_session: Session) -> None:
     assert _count(db_session, Shelf) == 2
     assert _count(db_session, ImportRun) == 1
     assert _count(db_session, ImportRecord) == 3
+    assert _count(db_session, MetadataClaim) == 19
 
     reread = db_session.scalar(
         select(LibraryEntry).join(Work).where(Work.title == "A Reread Book")
@@ -76,3 +78,4 @@ def test_import_is_audited_and_idempotent(db_session: Session) -> None:
     assert _count(db_session, ReadingEvent) == 2
     assert _count(db_session, ImportRun) == 2
     assert _count(db_session, ImportRecord) == 6
+    assert _count(db_session, MetadataClaim) == 19
