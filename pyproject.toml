@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "book-engine"
+version = "0.1.0"
+description = "A local-first personal book catalog and recommendation engine"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "alembic>=1.16,<2",
+    "pydantic-settings>=2.10,<3",
+    "sqlalchemy>=2.0.41,<3",
+    "typer>=0.16,<1",
+]
+
+[project.scripts]
+book-engine = "book_engine.cli:app"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.16,<2",
+    "pytest>=8.4,<9",
+    "ruff>=0.12,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/book_engine"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/versions/*.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+packages = ["book_engine"]
