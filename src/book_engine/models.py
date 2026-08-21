@@ -20,6 +20,20 @@ from book_engine.library.models import (
     ReadingEvent,
     Shelf,
 )
+from book_engine.recommendations.models import (
+    DerivationRun,
+    RecommendationExplanation,
+    RecommendationItem,
+    RecommendationNeighbor,
+    RecommendationRun,
+    RecommendationSignal,
+    TasteProfileRun,
+    TasteProfileValue,
+    TraitDefinition,
+    WorkEmbedding,
+    WorkRepresentation,
+    WorkTraitValue,
+)
 from book_engine.web.models import BrowseFacet, ConceptFacetMapping
 
 __all__ = [
@@ -46,4 +60,16 @@ __all__ = [
     "WorkSeriesClaim",
     "BrowseFacet",
     "ConceptFacetMapping",
+    "DerivationRun",
+    "RecommendationExplanation",
+    "RecommendationItem",
+    "RecommendationNeighbor",
+    "RecommendationRun",
+    "RecommendationSignal",
+    "TasteProfileRun",
+    "TasteProfileValue",
+    "TraitDefinition",
+    "WorkEmbedding",
+    "WorkRepresentation",
+    "WorkTraitValue",
 ]

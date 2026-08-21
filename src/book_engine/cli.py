@@ -104,6 +104,105 @@ def sync_facets() -> None:
     typer.echo(f"Concept mappings: {mapping_count}")
 
 
+@app.command("recommend-validate")
+def recommend_validate() -> None:
+    """Run the bounded positive-only recommendation validation."""
+    from sqlalchemy import select
+
+    from book_engine.catalog.models import Work
+    from book_engine.library.models import LibraryEntry
+    from book_engine.recommendations.models import (
+        RecommendationExplanation,
+        RecommendationItem,
+        RecommendationNeighbor,
+        RecommendationSignal,
+        TasteProfileValue,
+        WorkRepresentation,
+    )
+    from book_engine.recommendations.service import run_validation
+
+    with SessionLocal() as session:
+        report = run_validation(session)
+        typer.echo(f"Recommendation run: {report.run_id}")
+        typer.echo(f"Taste profile: {report.profile_run_id}")
+        typer.echo(f"Read works: {report.read_work_count}")
+        typer.echo(f"Semantic anchors: {report.represented_read_count}")
+        typer.echo(f"Validation candidates: {report.candidate_count}")
+        typer.echo(f"Representation cache hits: {report.representation_cache_hits}")
+        typer.echo(f"Embedding cache hits: {report.embedding_cache_hits}")
+        typer.echo(f"Cached recommendation run: {report.cached_run}")
+
+        typer.echo("\nTaste profile:")
+        profile_values = session.scalars(
+            select(TasteProfileValue)
+            .where(TasteProfileValue.profile_run_id == report.profile_run_id)
+            .order_by(TasteProfileValue.support_count.desc())
+        ).all()
+        for value in profile_values:
+            typer.echo(
+                f"- {value.label}: weight={value.weight:.3f}, "
+                f"support={value.support_count}"
+            )
+
+        typer.echo("\nSemantic anchor books:")
+        anchor_rows = session.execute(
+            select(Work.id, Work.title)
+            .join(WorkRepresentation, WorkRepresentation.work_id == Work.id)
+            .join(LibraryEntry, LibraryEntry.work_id == Work.id)
+            .where(LibraryEntry.status == "read")
+            .order_by(Work.id)
+        ).all()
+        for work_id, title in anchor_rows:
+            typer.echo(f"- {work_id}: {title}")
+
+        typer.echo("\nRanked validation candidates:")
+        items = session.scalars(
+            select(RecommendationItem)
+            .where(RecommendationItem.run_id == report.run_id)
+            .order_by(RecommendationItem.rank)
+        ).all()
+        for item in items:
+            title = session.scalar(select(Work.title).where(Work.id == item.work_id))
+            typer.echo(
+                f"\n{item.rank}. {title} | score={item.reranked_score:.1f} "
+                f"({item.match_label}) | confidence={item.confidence_label} "
+                f"| repetitive={item.repetitive}"
+            )
+            signals = session.scalars(
+                select(RecommendationSignal)
+                .where(RecommendationSignal.recommendation_item_id == item.id)
+                .order_by(RecommendationSignal.contribution.desc())
+            ).all()
+            for signal in signals:
+                typer.echo(
+                    f"  {signal.signal_name}: raw={signal.raw_value:.3f}, "
+                    f"weight={signal.weight:.2f}, +{signal.contribution:.2f}"
+                )
+            neighbors = session.execute(
+                select(Work.title, RecommendationNeighbor.similarity)
+                .join(
+                    RecommendationNeighbor,
+                    RecommendationNeighbor.read_work_id == Work.id,
+                )
+                .where(RecommendationNeighbor.recommendation_item_id == item.id)
+                .order_by(RecommendationNeighbor.rank)
+            ).all()
+            typer.echo(
+                "  Closest reads: "
+                + "; ".join(
+                    f"{neighbor_title} ({similarity:.3f})"
+                    for neighbor_title, similarity in neighbors
+                )
+            )
+            explanation = session.scalar(
+                select(RecommendationExplanation).where(
+                    RecommendationExplanation.recommendation_item_id == item.id
+                )
+            )
+            if explanation:
+                typer.echo(f"  Why: {explanation.rendered_text}")
+
+
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
