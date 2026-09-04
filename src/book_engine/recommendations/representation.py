@@ -5,17 +5,27 @@ import json
 import math
 import re
 import struct
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from book_engine.catalog.models import Author, Work, WorkAuthor
-from book_engine.enrichment.models import WorkConceptClaim
-from book_engine.recommendations.models import WorkEmbedding, WorkRepresentation
-from book_engine.recommendations.types import EmbeddingProvider, SemanticDocument
-from book_engine.web.models import BrowseFacet, ConceptFacetMapping
+from book_engine.recommendations.models import (
+    DerivationRun,
+    TraitDefinition,
+    WorkEmbedding,
+    WorkRepresentation,
+    WorkTraitValue,
+)
+from book_engine.recommendations.traits import TRAIT_EXTRACTOR_VERSION
+from book_engine.recommendations.types import (
+    EmbeddingBatch,
+    EmbeddingProvider,
+    SemanticDocument,
+)
 
-REPRESENTATION_VERSION = "semantic-document-v1"
+REPRESENTATION_VERSION = "semantic-document-v2"
 STOPWORDS = {
     "about",
     "after",
@@ -79,7 +89,7 @@ class HashingEmbeddingProvider:
     model = "signed-hashing-v2"
     dimensions = 2048
 
-    def embed(self, text: str) -> tuple[float, ...]:
+    def _embed(self, text: str) -> tuple[float, ...]:
         vector = [0.0] * self.dimensions
         tokens = [
             token
@@ -99,6 +109,13 @@ class HashingEmbeddingProvider:
             vector = [value / magnitude for value in vector]
         return tuple(vector)
 
+    def embed_many(self, texts: list[str]) -> EmbeddingBatch:
+        return EmbeddingBatch(
+            vectors=tuple(self._embed(text) for text in texts),
+            response_metadata={"implementation": self.model},
+            usage={"input_count": len(texts), "api_requests": 0, "cost_usd": 0.0},
+        )
+
 
 def build_semantic_document(session: Session, work_id: int) -> SemanticDocument:
     work = session.get(Work, work_id)
@@ -109,23 +126,17 @@ def build_semantic_document(session: Session, work_id: int) -> SemanticDocument:
         .join(WorkAuthor, WorkAuthor.author_id == Author.id)
         .where(WorkAuthor.work_id == work_id, WorkAuthor.position == 0)
     )
-    facets = tuple(
+    traits = tuple(
         session.scalars(
-            select(BrowseFacet.label)
-            .join(
-                ConceptFacetMapping,
-                ConceptFacetMapping.facet_id == BrowseFacet.id,
-            )
-            .join(
-                WorkConceptClaim,
-                WorkConceptClaim.concept_id == ConceptFacetMapping.concept_id,
-            )
+            select(TraitDefinition.label)
+            .join(WorkTraitValue, WorkTraitValue.trait_id == TraitDefinition.id)
             .where(
-                WorkConceptClaim.work_id == work_id,
-                WorkConceptClaim.status == "accepted",
+                WorkTraitValue.work_id == work_id,
+                WorkTraitValue.status == "accepted",
+                WorkTraitValue.extractor_version == TRAIT_EXTRACTOR_VERSION,
             )
             .distinct()
-            .order_by(BrowseFacet.display_order)
+            .order_by(TraitDefinition.label)
         ).all()
     )
     snapshot: dict[str, object] = {
@@ -133,7 +144,7 @@ def build_semantic_document(session: Session, work_id: int) -> SemanticDocument:
         "subtitle": work.subtitle,
         "author": author or "Unknown author",
         "description": work.description,
-        "facets": facets,
+        "recommendation_traits": traits,
         "publication_year": work.original_publication_year,
     }
     encoded = json.dumps(
@@ -143,8 +154,8 @@ def build_semantic_document(session: Session, work_id: int) -> SemanticDocument:
     lines = [f"Title: {work.title}", f"Author: {author or 'Unknown author'}"]
     if work.subtitle and work.subtitle.casefold() not in work.title.casefold():
         lines.append(f"Subtitle: {work.subtitle}")
-    if facets:
-        lines.append(f"Curated concepts: {', '.join(facets)}")
+    if traits:
+        lines.append(f"Recommendation traits: {', '.join(traits)}")
     if work.description:
         lines.append(f"Description: {' '.join(work.description.split())}")
     return SemanticDocument(work_id, "\n".join(lines), input_hash, snapshot)
@@ -177,37 +188,102 @@ def ensure_representation(
     return representation, False
 
 
-def ensure_embedding(
+def ensure_embeddings(
     session: Session,
-    representation: WorkRepresentation,
+    representations: list[WorkRepresentation],
     provider: EmbeddingProvider,
-) -> tuple[WorkEmbedding, bool]:
-    existing = session.scalar(
-        select(WorkEmbedding).where(
-            WorkEmbedding.work_id == representation.work_id,
-            WorkEmbedding.purpose == "recommendation_similarity",
-            WorkEmbedding.provider == provider.name,
-            WorkEmbedding.model == provider.model,
-            WorkEmbedding.input_hash == representation.input_hash,
+) -> tuple[dict[int, WorkEmbedding], int, DerivationRun | None]:
+    embeddings: dict[int, WorkEmbedding] = {}
+    missing: list[WorkRepresentation] = []
+    for representation in representations:
+        existing = session.scalar(
+            select(WorkEmbedding).where(
+                WorkEmbedding.work_id == representation.work_id,
+                WorkEmbedding.purpose == "recommendation_similarity",
+                WorkEmbedding.provider == provider.name,
+                WorkEmbedding.model == provider.model,
+                WorkEmbedding.input_hash == representation.input_hash,
+            )
         )
+        if existing is None:
+            missing.append(representation)
+        else:
+            embeddings[representation.work_id] = existing
+    if not missing:
+        return embeddings, len(representations), None
+
+    request = {
+        "purpose": "recommendation_similarity",
+        "inputs": [
+            {
+                "work_id": item.work_id,
+                "representation_id": item.id,
+                "content_hash": item.input_hash,
+                "builder_version": item.builder_version,
+            }
+            for item in missing
+        ],
+    }
+    request_hash = _stable_hash(
+        {"provider": provider.name, "model": provider.model, **request}
     )
-    if existing is not None:
-        return existing, True
-    vector = provider.embed(representation.content)
-    embedding = WorkEmbedding(
-        work_id=representation.work_id,
-        representation_id=representation.id,
-        purpose="recommendation_similarity",
+    started = _now()
+    derivation = DerivationRun(
         provider=provider.name,
         model=provider.model,
-        dimensions=len(vector),
-        vector_blob=pack_vector(vector),
-        input_hash=representation.input_hash,
-        representation_version=representation.builder_version,
+        purpose="recommendation_similarity",
+        input_hash=request_hash,
+        prompt_version=None,
+        schema_version="embedding-batch-v1",
+        request_json=request,
+        usage_json={},
+        status="running",
+        started_at=started,
     )
-    session.add(embedding)
+    session.add(derivation)
     session.flush()
-    return embedding, False
+    try:
+        batch = provider.embed_many([item.content for item in missing])
+        if len(batch.vectors) != len(missing):
+            raise ValueError("Embedding provider returned the wrong vector count")
+        for representation, vector in zip(missing, batch.vectors, strict=True):
+            if len(vector) != provider.dimensions:
+                raise ValueError("Embedding provider returned the wrong dimensions")
+            embedding = WorkEmbedding(
+                work_id=representation.work_id,
+                representation_id=representation.id,
+                purpose="recommendation_similarity",
+                provider=provider.name,
+                model=provider.model,
+                dimensions=len(vector),
+                vector_blob=pack_vector(vector),
+                input_hash=representation.input_hash,
+                representation_version=representation.builder_version,
+                derivation_run_id=derivation.id,
+            )
+            session.add(embedding)
+            embeddings[representation.work_id] = embedding
+        derivation.response_json = batch.response_metadata
+        derivation.usage_json = batch.usage
+        derivation.status = "completed"
+        derivation.completed_at = _now()
+        session.flush()
+    except Exception as exc:
+        derivation.status = "failed"
+        derivation.error_message = str(exc)
+        derivation.completed_at = _now()
+        session.flush()
+        raise
+    return embeddings, len(representations) - len(missing), derivation
+
+
+def _stable_hash(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def pack_vector(vector: tuple[float, ...]) -> bytes:

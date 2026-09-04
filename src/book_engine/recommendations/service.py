@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import statistics
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
@@ -13,7 +13,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from book_engine.catalog.models import Author, Work, WorkAuthor
-from book_engine.enrichment.models import WorkConceptClaim
 from book_engine.library.models import LibraryEntry
 from book_engine.recommendations.models import (
     RecommendationExplanation,
@@ -23,24 +22,25 @@ from book_engine.recommendations.models import (
     RecommendationSignal,
     TasteProfileRun,
     TasteProfileValue,
-    TraitDefinition,
-    WorkTraitValue,
 )
 from book_engine.recommendations.representation import (
     HashingEmbeddingProvider,
     cosine,
-    ensure_embedding,
+    ensure_embeddings,
     ensure_representation,
     normalized_mean,
     pack_vector,
     unpack_vector,
 )
-from book_engine.web.models import BrowseFacet, ConceptFacetMapping
+from book_engine.recommendations.traits import (
+    TRAIT_EXTRACTOR_VERSION,
+    sync_recommendation_traits,
+    trait_labels,
+)
+from book_engine.recommendations.types import EmbeddingProvider
 
-PROFILE_VERSION = "positive-only-profile-v1"
-SCORING_VERSION = "hybrid-validation-v2"
-TRAIT_SCHEMA_VERSION = "browse-facet-traits-v1"
-TRAIT_EXTRACTOR_VERSION = "curated-facet-mapping-v1"
+PROFILE_VERSION = "positive-only-profile-v2"
+SCORING_VERSION = "hybrid-validation-v3"
 ANCHOR_LIMIT = 18
 SIGNAL_WEIGHTS = {
     "profile_similarity": 0.30,
@@ -62,9 +62,14 @@ class ValidationReport:
     representation_cache_hits: int
     embedding_cache_hits: int
     cached_run: bool
+    embedding_provider: str
+    embedding_model: str
+    derivation_run_id: int | None
 
 
-def run_validation(session: Session) -> ValidationReport:
+def run_validation(
+    session: Session, provider: EmbeddingProvider | None = None
+) -> ValidationReport:
     read_ids = list(
         session.scalars(
             select(LibraryEntry.work_id)
@@ -82,24 +87,25 @@ def run_validation(session: Session) -> ValidationReport:
     if not read_ids or not candidate_ids:
         raise ValueError("Validation requires both read and want-to-read works")
 
-    trait_map = _sync_deterministic_traits(session, read_ids + candidate_ids)
+    trait_map = sync_recommendation_traits(session, read_ids + candidate_ids)
     anchor_ids = _select_diverse_anchors(session, read_ids, trait_map)
-    provider = HashingEmbeddingProvider()
+    provider = provider or HashingEmbeddingProvider()
     vectors: dict[int, tuple[float, ...]] = {}
     representation_hits = 0
     embedding_hits = 0
     representation_hashes: dict[int, str] = {}
+    representations = []
     for work_id in anchor_ids + candidate_ids:
         representation, representation_cached = ensure_representation(session, work_id)
-        embedding, embedding_cached = ensure_embedding(
-            session, representation, provider
-        )
         representation_hits += int(representation_cached)
-        embedding_hits += int(embedding_cached)
         representation_hashes[work_id] = representation.input_hash
-        vectors[work_id] = unpack_vector(
-            embedding.vector_blob, embedding.dimensions
-        )
+        representations.append(representation)
+    embeddings, embedding_hits, derivation = ensure_embeddings(
+        session, representations, provider
+    )
+    for work_id in anchor_ids + candidate_ids:
+        embedding = embeddings[work_id]
+        vectors[work_id] = unpack_vector(embedding.vector_blob, embedding.dimensions)
 
     profile_hash = _stable_hash(
         {
@@ -153,6 +159,9 @@ def run_validation(session: Session) -> ValidationReport:
             representation_hits,
             embedding_hits,
             True,
+            provider.name,
+            provider.model,
+            None,
         )
 
     run = RecommendationRun(
@@ -187,88 +196,10 @@ def run_validation(session: Session) -> ValidationReport:
         representation_hits,
         embedding_hits,
         False,
+        provider.name,
+        provider.model,
+        derivation.id if derivation else None,
     )
-
-
-def _sync_deterministic_traits(
-    session: Session, work_ids: list[int]
-) -> dict[int, set[str]]:
-    facets = session.scalars(
-        select(BrowseFacet).order_by(BrowseFacet.display_order)
-    ).all()
-    definitions: dict[str, TraitDefinition] = {}
-    for facet in facets:
-        definition = session.scalar(
-            select(TraitDefinition).where(TraitDefinition.slug == facet.slug)
-        )
-        if definition is None:
-            definition = TraitDefinition(
-                slug=facet.slug,
-                label=facet.label,
-                category=facet.category,
-                value_type="boolean",
-                description="Curated from normalized provider concepts",
-                schema_version=TRAIT_SCHEMA_VERSION,
-                active=True,
-            )
-            session.add(definition)
-            session.flush()
-        definitions[facet.slug] = definition
-
-    rows = session.execute(
-        select(
-            WorkConceptClaim.work_id,
-            BrowseFacet.slug,
-            BrowseFacet.label,
-            BrowseFacet.id,
-        )
-        .join(
-            ConceptFacetMapping,
-            ConceptFacetMapping.concept_id == WorkConceptClaim.concept_id,
-        )
-        .join(BrowseFacet, BrowseFacet.id == ConceptFacetMapping.facet_id)
-        .where(
-            WorkConceptClaim.work_id.in_(work_ids),
-            WorkConceptClaim.status == "accepted",
-        )
-        .distinct()
-    ).all()
-    result: dict[int, set[str]] = defaultdict(set)
-    for work_id, slug, label, facet_id in rows:
-        result[work_id].add(slug)
-        input_hash = _stable_hash(
-            {
-                "work_id": work_id,
-                "facet_id": facet_id,
-                "version": TRAIT_EXTRACTOR_VERSION,
-            }
-        )
-        exists_value = session.scalar(
-            select(WorkTraitValue.id).where(
-                WorkTraitValue.work_id == work_id,
-                WorkTraitValue.trait_id == definitions[slug].id,
-                WorkTraitValue.source_kind == "deterministic",
-                WorkTraitValue.extractor_version == TRAIT_EXTRACTOR_VERSION,
-                WorkTraitValue.input_hash == input_hash,
-            )
-        )
-        if exists_value is None:
-            session.add(
-                WorkTraitValue(
-                    work_id=work_id,
-                    trait_id=definitions[slug].id,
-                    value_text="present",
-                    confidence=0.85,
-                    source_kind="deterministic",
-                    source_reference={"browse_facet_id": facet_id},
-                    extractor_version=TRAIT_EXTRACTOR_VERSION,
-                    input_hash=input_hash,
-                    evidence_json={"facet": label},
-                    status="accepted",
-                )
-            )
-    session.flush()
-    return result
 
 
 def _select_diverse_anchors(
@@ -315,6 +246,7 @@ def _create_profile(
             "ratings_used": False,
             "positive_status": "read",
             "semantic_anchor_limit": ANCHOR_LIMIT,
+            "semantic_anchor_work_ids": anchor_ids,
             "trait_source": TRAIT_EXTRACTOR_VERSION,
         },
         source_work_count=len(read_ids),
@@ -329,16 +261,11 @@ def _create_profile(
     session.flush()
     counts = Counter(slug for work_id in read_ids for slug in traits[work_id])
     max_count = max(counts.values(), default=1)
-    labels: dict[str, str] = {
-        slug: label
-        for slug, label in session.execute(
-            select(BrowseFacet.slug, BrowseFacet.label)
-        )
-    }
+    labels = trait_labels(session)
     for slug, count in counts.items():
-        representatives = [
-            work_id for work_id in read_ids if slug in traits[work_id]
-        ][:5]
+        representatives = [work_id for work_id in read_ids if slug in traits[work_id]][
+            :5
+        ]
         session.add(
             TasteProfileValue(
                 profile_run_id=profile.id,
@@ -453,12 +380,7 @@ def _score_candidates(
         ordered.append((best_candidate, best_reranked))
         remaining.remove(best_candidate)
 
-    labels = {
-        slug: label
-        for slug, label in session.execute(
-            select(BrowseFacet.slug, BrowseFacet.label)
-        )
-    }
+    labels = trait_labels(session)
     for rank, (candidate, reranked_score) in enumerate(ordered, 1):
         work_id = cast(int, candidate["work_id"])
         base_score = cast(float, candidate["base_score"])

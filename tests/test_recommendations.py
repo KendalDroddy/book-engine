@@ -4,6 +4,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from book_engine.catalog.models import Work
 from book_engine.enrichment.models import (
     Concept,
     EnrichmentAttempt,
@@ -13,15 +14,19 @@ from book_engine.enrichment.models import (
 )
 from book_engine.importing.goodreads import import_goodreads_csv
 from book_engine.recommendations.models import (
+    DerivationRun,
     RecommendationExplanation,
     RecommendationItem,
     RecommendationSignal,
     TasteProfileRun,
+    TraitDefinition,
     WorkEmbedding,
     WorkRepresentation,
     WorkTraitValue,
 )
 from book_engine.recommendations.service import SIGNAL_WEIGHTS, run_validation
+from book_engine.recommendations.traits import TRAIT_EXTRACTOR_VERSION
+from book_engine.recommendations.types import EmbeddingBatch
 from book_engine.web.facets import sync_browse_facets
 from book_engine.web.models import BrowseFacet, ConceptFacetMapping
 
@@ -166,3 +171,95 @@ def test_derived_records_include_replaceable_provider_provenance(
     assert trait.source_kind == "deterministic"
     assert trait.source_reference["browse_facet_id"] > 0
     assert len(trait.input_hash) == 64
+
+
+class FixtureModelEmbeddingProvider:
+    name = "fixture-model"
+    model = "semantic-fixture-v1"
+    dimensions = 4
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def embed_many(self, texts: list[str]) -> EmbeddingBatch:
+        self.calls += 1
+        vectors = tuple(
+            (1.0, 0.0, 0.0, 0.0) if "Fiction" in text else (0.0, 1.0, 0.0, 0.0)
+            for text in texts
+        )
+        return EmbeddingBatch(
+            vectors=vectors,
+            response_metadata={"model": self.model, "vector_count": len(texts)},
+            usage={
+                "prompt_tokens": 23,
+                "total_tokens": 23,
+                "estimated_cost_usd": 0.000001,
+            },
+        )
+
+
+def test_model_embeddings_preserve_derivation_and_reuse_cache(
+    db_session: Session,
+) -> None:
+    _prepare_library(db_session)
+    provider = FixtureModelEmbeddingProvider()
+
+    first = run_validation(db_session, provider)
+
+    assert first.embedding_provider == "fixture-model"
+    assert first.derivation_run_id is not None
+    assert provider.calls == 1
+    derivation = db_session.get(DerivationRun, first.derivation_run_id)
+    assert derivation is not None
+    assert derivation.status == "completed"
+    assert derivation.usage_json["prompt_tokens"] == 23
+    assert len(derivation.request_json["inputs"]) == 3
+    assert all("content_hash" in item for item in derivation.request_json["inputs"])
+    embeddings = db_session.scalars(
+        select(WorkEmbedding).where(WorkEmbedding.provider == "fixture-model")
+    ).all()
+    assert len(embeddings) == 3
+    assert {item.derivation_run_id for item in embeddings} == {derivation.id}
+
+    second = run_validation(db_session, provider)
+
+    assert second.cached_run is True
+    assert second.run_id == first.run_id
+    assert second.embedding_cache_hits == 3
+    assert second.derivation_run_id is None
+    assert provider.calls == 1
+
+
+def test_semantic_traits_are_versioned_and_evidenced(db_session: Session) -> None:
+    _prepare_library(db_session)
+    work = db_session.get(Work, 1)
+    assert work is not None
+    work.description = (
+        "A behind the scenes account of engineering decisions and an "
+        "organizational failure in a company crisis."
+    )
+    db_session.commit()
+
+    run_validation(db_session)
+
+    traits = db_session.execute(
+        select(TraitDefinition.slug, WorkTraitValue)
+        .join(WorkTraitValue, WorkTraitValue.trait_id == TraitDefinition.id)
+        .where(
+            WorkTraitValue.work_id == 1,
+            WorkTraitValue.extractor_version == TRAIT_EXTRACTOR_VERSION,
+            WorkTraitValue.status == "accepted",
+        )
+    ).all()
+    by_slug = {slug: value for slug, value in traits}
+    assert {
+        "human-decision-making",
+        "systems-failure",
+        "technical-detail",
+        "insider-access",
+        "business-organizational-systems",
+    } <= by_slug.keys()
+    assert by_slug["systems-failure"].evidence_json["matched_phrases"] == [
+        "organizational failure"
+    ]
+    assert all(len(value.input_hash) == 64 for value in by_slug.values())

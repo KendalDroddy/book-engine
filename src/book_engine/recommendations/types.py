@@ -1,7 +1,7 @@
 """Provider-neutral semantic derivation contracts."""
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,14 @@ class EmbeddingProvider(Protocol):
     model: str
     dimensions: int
 
-    def embed(self, text: str) -> tuple[float, ...]: ...
+    def embed_many(self, texts: list[str]) -> "EmbeddingBatch": ...
+
+
+@dataclass(frozen=True)
+class EmbeddingBatch:
+    vectors: tuple[tuple[float, ...], ...]
+    response_metadata: dict[str, Any]
+    usage: dict[str, Any]
 
 
 @dataclass(frozen=True)

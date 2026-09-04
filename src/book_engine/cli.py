@@ -105,24 +105,48 @@ def sync_facets() -> None:
 
 
 @app.command("recommend-validate")
-def recommend_validate() -> None:
+def recommend_validate(
+    embedding_provider: str = typer.Option(
+        "local", "--embedding-provider", help="local or openai"
+    ),
+) -> None:
     """Run the bounded positive-only recommendation validation."""
     from sqlalchemy import select
 
     from book_engine.catalog.models import Work
-    from book_engine.library.models import LibraryEntry
     from book_engine.recommendations.models import (
         RecommendationExplanation,
         RecommendationItem,
         RecommendationNeighbor,
         RecommendationSignal,
+        TasteProfileRun,
         TasteProfileValue,
-        WorkRepresentation,
     )
+    from book_engine.recommendations.providers import OpenAIEmbeddingProvider
+    from book_engine.recommendations.representation import HashingEmbeddingProvider
     from book_engine.recommendations.service import run_validation
+    from book_engine.recommendations.types import EmbeddingProvider
+
+    settings = get_settings()
+    provider: EmbeddingProvider
+    if embedding_provider == "local":
+        provider = HashingEmbeddingProvider()
+    elif embedding_provider == "openai":
+        if not settings.openai_api_key:
+            raise typer.BadParameter(
+                "BOOK_ENGINE_OPENAI_API_KEY is required for the OpenAI provider"
+            )
+        provider = OpenAIEmbeddingProvider(
+            api_key=settings.openai_api_key,
+            model=settings.openai_embedding_model,
+            dimensions=settings.openai_embedding_dimensions,
+            timeout_seconds=settings.openai_timeout_seconds,
+        )
+    else:
+        raise typer.BadParameter("embedding provider must be 'local' or 'openai'")
 
     with SessionLocal() as session:
-        report = run_validation(session)
+        report = run_validation(session, provider)
         typer.echo(f"Recommendation run: {report.run_id}")
         typer.echo(f"Taste profile: {report.profile_run_id}")
         typer.echo(f"Read works: {report.read_work_count}")
@@ -131,6 +155,10 @@ def recommend_validate() -> None:
         typer.echo(f"Representation cache hits: {report.representation_cache_hits}")
         typer.echo(f"Embedding cache hits: {report.embedding_cache_hits}")
         typer.echo(f"Cached recommendation run: {report.cached_run}")
+        typer.echo(
+            f"Embedding provider: {report.embedding_provider}/{report.embedding_model}"
+        )
+        typer.echo(f"Derivation run: {report.derivation_run_id or 'cache only'}")
 
         typer.echo("\nTaste profile:")
         profile_values = session.scalars(
@@ -145,12 +173,11 @@ def recommend_validate() -> None:
             )
 
         typer.echo("\nSemantic anchor books:")
+        profile = session.get(TasteProfileRun, report.profile_run_id)
+        assert profile is not None
+        anchor_ids = profile.configuration["semantic_anchor_work_ids"]
         anchor_rows = session.execute(
-            select(Work.id, Work.title)
-            .join(WorkRepresentation, WorkRepresentation.work_id == Work.id)
-            .join(LibraryEntry, LibraryEntry.work_id == Work.id)
-            .where(LibraryEntry.status == "read")
-            .order_by(Work.id)
+            select(Work.id, Work.title).where(Work.id.in_(anchor_ids)).order_by(Work.id)
         ).all()
         for work_id, title in anchor_rows:
             typer.echo(f"- {work_id}: {title}")
