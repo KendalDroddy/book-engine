@@ -28,11 +28,12 @@
       <div class="recommendation-main">
         <div class="recommendation-meta">
           <span>#{% if section.kind == 'discovered' %}{{ book.eligible_rank }}{% else %}{{ loop.index }}{% endif %}</span>
-          <span>{{ "%.1f"|format(book.score) }} match</span><span>{{ book.confidence_label }} confidence</span>
+          <span>{{ "%.1f"|format(book.score) }} combined</span><span>{{ book.confidence_label }} taste confidence</span>
           {% if section.kind == 'discovered' %}<span>Raw #{{ book.raw_rank }} · Diversified #{{ book.diversified_rank }}</span>{% endif %}
         </div>
         <h3>{% if book.in_library %}<a href="/books/{{ book.work_id }}">{{ book.title }}</a>{% else %}{{ book.title }}{% endif %}</h3>
         <p class="book-author">{{ book.author }}</p>
+        {% if book.reputation_label %}<p class="reputation-label"><strong>{{ book.reputation_label }}</strong><span>{{ "%.2f"|format(book.reputation_rating) }} from {{ "{:,}".format(book.reputation_count) }} Google ratings</span></p>{% elif section.kind == 'discovered' %}<p class="reputation-label"><strong>Reputation unavailable</strong><span>Ranked using Taste Fit alone</span></p>{% endif %}
         {% if book.discovery_clusters %}<p class="discovery-source">Discovered through {% for cluster in book.discovery_clusters %}<span>{{ cluster|replace('-', ' ') }}</span>{% endfor %}</p>{% endif %}
         <div class="warning-list">
           {% if book.match_label == 'exploratory' %}<span class="warning-badge">Weak match</span>{% endif %}
@@ -42,7 +43,7 @@
         {% if book.strongest_specific_evidence %}<ul class="trait-list" aria-label="Strongest specific evidence">{% for trait in book.strongest_specific_evidence %}<li>{{ trait }}</li>{% endfor %}</ul>{% endif %}
         <div class="recommendation-why"><strong>Why this book?</strong><p>{{ book.explanation }}</p></div>
         <div class="neighbor-list"><strong>Closest reads</strong>{% for neighbor in book.neighbors %}<span>{{ neighbor.title }} <small>{{ "%.3f"|format(neighbor.similarity) }}</small></span>{% endfor %}</div>
-        <details class="score-details"><summary>Inspect score and evidence</summary><div class="signal-grid">{% for signal in book.signals %}<div><span>{{ signal.name|replace('_', ' ') }}</span><strong>{% if signal.contribution >= 0 %}+{% endif %}{{ "%.2f"|format(signal.contribution) }}</strong><small>{{ "%.3f"|format(signal.raw_value) }} × {{ "%.2f"|format(signal.weight) }}</small>{% if signal.evidence %}<small>{{ signal.evidence }}</small>{% endif %}</div>{% endfor %}</div>{% if section.kind == 'discovered' %}<div class="rank-audit"><span>Raw rank #{{ book.raw_rank }}</span><span>Diversified rank #{{ book.diversified_rank }}</span><span>Eligible rank #{{ book.eligible_rank }}</span></div>{% endif %}</details>
+        <details class="score-details"><summary>Inspect score and evidence</summary>{% if section.kind == 'discovered' %}<div class="score-equation"><span>Taste Fit {{ "%.1f"|format(book.taste_fit_score) }}</span><span>Reputation {% if book.reputation_adjustment >= 0 %}+{% endif %}{{ "%.1f"|format(book.reputation_adjustment) }}</span><strong>Combined {{ "%.1f"|format(book.score) }}</strong></div>{% endif %}<div class="signal-grid">{% for signal in book.signals %}<div><span>{{ signal.name|replace('_', ' ') }}</span><strong>{% if signal.contribution >= 0 %}+{% endif %}{{ "%.2f"|format(signal.contribution) }}</strong><small>{{ "%.3f"|format(signal.raw_value) }} × {{ "%.2f"|format(signal.weight) }}</small>{% if signal.evidence %}<small>{{ signal.evidence }}</small>{% endif %}</div>{% endfor %}</div>{% if section.kind == 'discovered' %}<div class="rank-audit"><span>Raw rank #{{ book.raw_rank }}</span><span>Diversified rank #{{ book.diversified_rank }}</span><span>Eligible rank #{{ book.eligible_rank }}</span>{% if book.combined_rank %}<span>Combined rank #{{ book.combined_rank }}</span>{% endif %}</div>{% endif %}</details>
       </div>
       <aside class="feedback-panel">
         <p>{% if section.kind == 'discovered' %}Your decision{% else %}Teach the engine{% endif %}</p>

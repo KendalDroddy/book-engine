@@ -202,6 +202,12 @@ class RecommendationItem(TimestampMixin, Base):
     eligibility_reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
     eligibility_warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
     eligibility_provenance: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    reputation_observation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("reputation_observations.id", ondelete="SET NULL")
+    )
+    reputation_adjustment: Mapped[float] = mapped_column(Float, default=0.0)
+    combined_score: Mapped[float | None] = mapped_column(Float)
+    combined_rank: Mapped[int | None]
 
 
 class RecommendationSignal(Base):

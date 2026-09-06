@@ -205,6 +205,8 @@ th { color: var(--muted); font-size: .64rem; text-transform: uppercase; letter-s
 .recommendation-main h3 a { text-decoration: none; }
 .discovery-source { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; color: var(--muted); font-size: .7rem; }
 .discovery-source span { padding: 3px 7px; color: var(--ink); background: var(--paper-deep); border-radius: 999px; text-transform: capitalize; }
+.reputation-label { display: flex; flex-wrap: wrap; gap: 7px 12px; align-items: baseline; margin: 10px 0; color: var(--muted); font-size: .72rem; }
+.reputation-label strong { color: var(--rust); text-transform: uppercase; letter-spacing: .06em; font-size: .64rem; }
 .warning-list, .trait-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 13px 0 0; padding: 0; list-style: none; }
 .warning-badge { padding: 4px 8px; color: #714b24; background: #eadabc; border-radius: 2px; font-size: .63rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
 .warning-badge--alert { color: #812f25; background: #efd0c9; }
@@ -222,6 +224,7 @@ th { color: var(--muted); font-size: .64rem; text-transform: uppercase; letter-s
 .signal-grid strong { font: 600 1.05rem var(--serif); }
 .signal-grid small { color: var(--muted); font-size: .6rem; }
 .rank-audit { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 12px; color: var(--muted); font-size: .68rem; border: 1px solid var(--line); border-top: 0; }
+.score-equation { display: flex; gap: 18px; padding: 12px; margin-top: 12px; background: var(--paper-deep); font-size: .72rem; }
 .feedback-panel { padding-left: 22px; border-left: 1px solid var(--line); }
 .feedback-panel > p { margin: 0 0 10px; color: var(--muted); font-size: .65rem; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; }
 .feedback-actions { display: grid; gap: 6px; }

@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     sql_echo: bool = False
     openlibrary_contact_email: str | None = None
     openlibrary_timeout_seconds: float = 15.0
+    google_books_api_key: str | None = None
+    google_books_timeout_seconds: float = 15.0
     openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dimensions: int = 1536

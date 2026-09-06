@@ -14,6 +14,7 @@ from book_engine.recommendations.models import (
     RecommendationRun,
     RecommendationSignal,
 )
+from book_engine.reputation.models import ReputationObservation
 from book_engine.web.viewmodels import (
     RecommendationCard,
     RecommendationCenter,
@@ -96,6 +97,9 @@ def record_recommendation_feedback(
             "eligible_rank": item.eligible_rank,
             "display_eligible": item.display_eligible,
             "reranked_score": item.reranked_score,
+            "reputation_adjustment": item.reputation_adjustment,
+            "combined_score": item.combined_score,
+            "combined_rank": item.combined_rank,
             "confidence_label": item.confidence_label,
         },
     )
@@ -148,7 +152,11 @@ def _cards(
             .where(LibraryEntry.work_id == RecommendationItem.work_id)
             .exists()
         )
-        statement = statement.order_by(RecommendationItem.eligible_rank)
+        statement = statement.order_by(
+            RecommendationItem.combined_rank.is_(None),
+            RecommendationItem.combined_rank,
+            RecommendationItem.eligible_rank,
+        )
     elif eligibility == "withheld":
         statement = statement.where(RecommendationItem.display_eligible.is_(False))
         statement = statement.order_by(RecommendationItem.rank)
@@ -215,6 +223,11 @@ def _cards(
         structured_evidence = (
             explanation_record.structured_evidence if explanation_record else {}
         )
+        reputation = (
+            session.get(ReputationObservation, item.reputation_observation_id)
+            if item.reputation_observation_id is not None
+            else None
+        )
         discovery = None
         if isinstance(discovery_run_id, int):
             discovery = session.scalar(
@@ -243,7 +256,12 @@ def _cards(
                 title=work.title,
                 author=author,
                 cover_url=cover,
-                score=item.reranked_score,
+                score=(
+                    item.combined_score
+                    if item.combined_score is not None
+                    else item.reranked_score
+                ),
+                taste_fit_score=item.reranked_score,
                 match_label=item.match_label,
                 confidence_label=item.confidence_label,
                 repetitive=item.repetitive,
@@ -274,6 +292,14 @@ def _cards(
                 eligibility_reasons=tuple(item.eligibility_reasons),
                 eligibility_warnings=tuple(item.eligibility_warnings),
                 eligibility_provenance=item.eligibility_provenance,
+                reputation_label=reputation.label if reputation else None,
+                reputation_rating=reputation.average_rating if reputation else None,
+                reputation_count=reputation.ratings_count if reputation else None,
+                reputation_confidence=(
+                    reputation.reputation_confidence if reputation else None
+                ),
+                reputation_adjustment=item.reputation_adjustment,
+                combined_rank=item.combined_rank,
             )
         )
     return tuple(cards)

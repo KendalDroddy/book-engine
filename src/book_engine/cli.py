@@ -329,6 +329,32 @@ def discover_recommend(
                 typer.echo(f"  Why: {explanation.rendered_text}")
 
 
+@app.command("reputation")
+def reputation(
+    discovery_run_id: int = typer.Option(1, "--discovery-run"),
+) -> None:
+    """Collect cached book reputation and calculate combined recommendation scores."""
+    from book_engine.reputation.providers import GoogleBooksReputationProvider
+    from book_engine.reputation.service import enrich_discovery_reputation
+
+    settings = get_settings()
+    provider = GoogleBooksReputationProvider(
+        api_key=settings.google_books_api_key,
+        timeout_seconds=settings.google_books_timeout_seconds,
+    )
+    with SessionLocal() as session:
+        report = enrich_discovery_reputation(session, discovery_run_id, provider)
+    typer.echo(f"Discovery run: {report.discovery_run_id}")
+    typer.echo(f"Recommendation run: {report.recommendation_run_id}")
+    typer.echo(f"Attempted: {report.attempted}")
+    typer.echo(f"Succeeded: {report.succeeded}")
+    typer.echo(f"Missed: {report.missed}")
+    typer.echo(f"Ambiguous: {report.ambiguous}")
+    typer.echo(f"Failed: {report.failed}")
+    typer.echo(f"Cache hits: {report.cache_hits}")
+    typer.echo(f"External requests: {report.external_requests}")
+
+
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),

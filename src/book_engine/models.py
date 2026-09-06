@@ -40,6 +40,7 @@ from book_engine.recommendations.models import (
     WorkRepresentation,
     WorkTraitValue,
 )
+from book_engine.reputation.models import ReputationFetch, ReputationObservation
 from book_engine.web.models import BrowseFacet, ConceptFacetMapping
 
 __all__ = [
@@ -82,4 +83,6 @@ __all__ = [
     "WorkEmbedding",
     "WorkRepresentation",
     "WorkTraitValue",
+    "ReputationFetch",
+    "ReputationObservation",
 ]

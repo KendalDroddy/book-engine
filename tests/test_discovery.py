@@ -26,6 +26,13 @@ from book_engine.recommendations.models import (
     RecommendationSignal,
 )
 from book_engine.recommendations.service import run_discovery_validation
+from book_engine.reputation.models import ReputationObservation
+from book_engine.reputation.service import enrich_discovery_reputation
+from book_engine.reputation.types import (
+    ReputationCandidate,
+    ReputationLookup,
+    ReputationProviderResult,
+)
 from book_engine.web.facets import sync_browse_facets
 from book_engine.web.recommendations import (
     get_recommendation_center,
@@ -91,6 +98,46 @@ class FixtureDiscoveryProvider:
         raise AssertionError("Discovery must not repeat identity searches")
 
 
+class FixtureReputationProvider:
+    name = "fixture_reputation"
+    parser_version = "fixture-v1"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def lookup(self, lookup: ReputationLookup) -> ReputationProviderResult:
+        self.calls += 1
+        return ReputationProviderResult(
+            request_key=f"work:{lookup.work_id}",
+            endpoint="fixture",
+            status_code=200,
+            raw_response={"fixture": lookup.work_id},
+            candidates=(
+                ReputationCandidate(
+                    provider_book_id=f"fixture-{lookup.work_id}",
+                    title=lookup.title,
+                    authors=(lookup.author,),
+                    identifiers=lookup.isbns,
+                    average_rating=4.2,
+                    ratings_count=5000,
+                ),
+            ),
+            request_count=1,
+        )
+
+
+class FailingReputationProvider:
+    name = "failing_reputation"
+    parser_version = "fixture-v1"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def lookup(self, lookup: ReputationLookup) -> ReputationProviderResult:
+        self.calls += 1
+        raise RuntimeError("fixture provider unavailable")
+
+
 def test_discovery_is_bounded_provenanced_ranked_and_cached(
     db_session: Session,
 ) -> None:
@@ -153,6 +200,34 @@ def test_discovery_is_bounded_provenanced_ranked_and_cached(
     assert second_recommendation.run_id == recommendation.run_id
     assert second_recommendation.cached_run is True
     assert db_session.scalar(select(func.count()).select_from(Work)) == work_count
+
+    reputation_provider = FixtureReputationProvider()
+    reputation = enrich_discovery_reputation(
+        db_session, first.run_id, reputation_provider
+    )
+    cached_reputation = enrich_discovery_reputation(
+        db_session, first.run_id, reputation_provider
+    )
+    assert reputation.succeeded == 4
+    assert reputation.external_requests == 4
+    assert cached_reputation.cache_hits == 4
+    assert cached_reputation.external_requests == 0
+    assert reputation_provider.calls == 4
+    assert (
+        db_session.scalar(select(func.count()).select_from(ReputationObservation)) == 4
+    )
+    failing_provider = FailingReputationProvider()
+    failed = enrich_discovery_reputation(db_session, first.run_id, failing_provider)
+    cached_failed = enrich_discovery_reputation(
+        db_session, first.run_id, failing_provider
+    )
+    assert failed.failed == 4
+    assert cached_failed.failed == 4
+    assert cached_failed.cache_hits == 4
+    assert failing_provider.calls == 4
+    assert (
+        db_session.scalar(select(func.count()).select_from(ReputationObservation)) == 4
+    )
 
     center = get_recommendation_center(db_session)
     assert center.recommended_for_you.run_id == recommendation.run_id

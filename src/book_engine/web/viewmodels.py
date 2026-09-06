@@ -157,6 +157,7 @@ class RecommendationCard:
     author: str
     cover_url: str | None
     score: float
+    taste_fit_score: float
     match_label: str
     confidence_label: str
     repetitive: bool
@@ -175,6 +176,12 @@ class RecommendationCard:
     eligibility_reasons: tuple[str, ...]
     eligibility_warnings: tuple[str, ...]
     eligibility_provenance: dict[str, Any]
+    reputation_label: str | None
+    reputation_rating: float | None
+    reputation_count: int | None
+    reputation_confidence: float | None
+    reputation_adjustment: float
+    combined_rank: int | None
 
     @property
     def id(self) -> int:
