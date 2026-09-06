@@ -11,6 +11,7 @@ from book_engine.enrichment.types import (
     BookLookup,
     BookMetadata,
     MetadataCandidate,
+    ProviderDiscoveryResult,
     ProviderError,
     ProviderMetadataResult,
     ProviderSearchResult,
@@ -78,6 +79,27 @@ class OpenLibraryProvider:
         )
         return ProviderSearchResult(
             request_key=lookup.request_key,
+            endpoint="/search.json",
+            status_code=status_code,
+            raw_payload=payload,
+            candidates=parse_search_payload(payload, lookup),
+        )
+
+    def discover(self, query: str, limit: int) -> ProviderDiscoveryResult:
+        request_key = f"discovery:{query}|limit:{limit}"
+        payload, status_code = self._get_json(
+            "/search.json",
+            params={
+                "q": query,
+                "fields": SEARCH_FIELDS,
+                "limit": limit,
+                "lang": "en",
+            },
+            request_key=request_key,
+        )
+        lookup = BookLookup(0, 0, "", "", None, None, None)
+        return ProviderDiscoveryResult(
+            request_key=request_key,
             endpoint="/search.json",
             status_code=status_code,
             raw_payload=payload,
@@ -271,7 +293,12 @@ def parse_metadata_payload(
 def _external_id(value: Any, prefix: str) -> str | None:
     if not isinstance(value, str):
         return None
-    return value.removeprefix(prefix) if value.startswith(prefix) else None
+    if value.startswith(prefix):
+        return value.removeprefix(prefix)
+    suffix = "W" if prefix == "/works/" else "M" if prefix == "/books/" else None
+    return (
+        value if suffix and value.startswith("OL") and value.endswith(suffix) else None
+    )
 
 
 def _integer(value: Any) -> int | None:

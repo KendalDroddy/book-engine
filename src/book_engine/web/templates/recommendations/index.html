@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "components/cover.html" import cover %}
+{% block title %}Recommendations · Book Engine{% endblock %}
+{% block content %}
+<section class="recommendation-hero">
+  <div>
+    <p class="eyebrow">Taste, made inspectable</p>
+    <h1>Recommendation Center</h1>
+    <p>Every result is decomposed into the evidence that placed it here. Ratings remain feedback, not the foundation of your taste profile.</p>
+  </div>
+</section>
+
+{% if center.provider_message %}
+<aside class="provider-notice" role="status"><strong>Discovery status</strong><span>{{ center.provider_message }}</span></aside>
+{% endif %}
+
+{% for section in [center.best_matches, center.want_to_read] %}
+<section class="recommendation-section">
+  <header class="section-heading">
+    <div><p class="eyebrow">{% if section.run_id %}Run {{ section.run_id }}{% else %}Awaiting candidates{% endif %}</p><h2>{{ section.title }}</h2><p>{{ section.description }}</p></div>
+    <span class="section-count">{{ section.cards|length }}</span>
+  </header>
+  {% if section.cards %}
+  <div class="recommendation-list">
+    {% for book in section.cards %}
+    <article class="recommendation-card" id="recommendation-{{ book.item_id }}">
+      <div class="recommendation-cover">{% if book.in_library %}<a href="/books/{{ book.work_id }}">{{ cover(book) }}</a>{% else %}{{ cover(book) }}{% endif %}</div>
+      <div class="recommendation-main">
+        <div class="recommendation-meta"><span>#{{ loop.index }}</span><span>{{ "%.1f"|format(book.score) }} match</span><span>{{ book.confidence_label }} confidence</span></div>
+        <h3>{% if book.in_library %}<a href="/books/{{ book.work_id }}">{{ book.title }}</a>{% else %}{{ book.title }}{% endif %}</h3>
+        <p class="book-author">{{ book.author }}</p>
+        <div class="warning-list">
+          {% if book.match_label == 'exploratory' %}<span class="warning-badge">Weak match</span>{% endif %}
+          {% if book.confidence_label == 'low' %}<span class="warning-badge warning-badge--alert">Low confidence</span>{% endif %}
+          {% if book.repetitive %}<span class="warning-badge">May feel repetitive</span>{% endif %}
+        </div>
+        {% if book.matching_traits %}<ul class="trait-list" aria-label="Matching traits">{% for trait in book.matching_traits %}<li>{{ trait }}</li>{% endfor %}</ul>{% endif %}
+        <p class="recommendation-why">{{ book.explanation }}</p>
+        <div class="neighbor-list"><strong>Closest reads</strong>{% for neighbor in book.neighbors %}<span>{{ neighbor.title }} <small>{{ "%.3f"|format(neighbor.similarity) }}</small></span>{% endfor %}</div>
+        <details class="score-details"><summary>Inspect score breakdown</summary><div class="signal-grid">{% for signal in book.signals %}<div><span>{{ signal.name|replace('_', ' ') }}</span><strong>+{{ "%.2f"|format(signal.contribution) }}</strong><small>{{ "%.3f"|format(signal.raw_value) }} × {{ "%.2f"|format(signal.weight) }}</small></div>{% endfor %}</div></details>
+      </div>
+      <aside class="feedback-panel">
+        <p>Teach the engine</p>
+        <div class="feedback-actions">
+          {% for action, label in [('add_to_want_to_read', 'Add to Want to Read'), ('not_interested', 'Not Interested'), ('loved', 'Loved'), ('liked', 'Liked'), ('fine', 'Fine'), ('miss', 'Miss')] %}
+          <form method="post" action="/recommendations/{{ book.item_id }}/feedback/{{ action }}"><button type="submit"{% if action in book.feedback_actions %} class="is-recorded" aria-pressed="true"{% endif %}>{{ label }}{% if action in book.feedback_actions %} · Recorded{% endif %}</button></form>
+          {% endfor %}
+        </div>
+      </aside>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="recommendation-empty"><p>No candidates are available for this section yet.</p><span>The rest of the Recommendation Center remains usable.</span></div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

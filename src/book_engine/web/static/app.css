@@ -46,6 +46,7 @@ button, select { cursor: pointer; }
 }
 .brand strong { display: block; font: 700 1.05rem var(--serif); letter-spacing: .01em; }
 .brand small { display: block; color: var(--muted); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; }
+.site-header nav { display: flex; gap: 24px; }
 .site-header nav a { text-decoration: none; font-size: .86rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; }
 .site-header nav a[aria-current="page"] { color: var(--rust); }
 .site-footer { width: min(1440px, calc(100% - 48px)); margin: 80px auto 0; padding: 28px 0 40px; border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; }
@@ -183,6 +184,51 @@ th { color: var(--muted); font-size: .64rem; text-transform: uppercase; letter-s
 .claim-status { padding: 3px 6px; border-radius: 2px; background: rgb(109 106 96 / 10%); }
 .claim-status--accepted { color: var(--forest); background: rgb(35 72 59 / 10%); }
 
+.recommendation-hero, .recommendation-section, .provider-notice { width: min(1240px, calc(100% - 48px)); margin-left: auto; margin-right: auto; }
+.recommendation-hero { margin-top: 54px; margin-bottom: 38px; }
+.recommendation-hero h1 { max-width: 950px; margin: 0; font: 500 clamp(2.8rem, 6vw, 5.5rem)/.98 var(--serif); letter-spacing: -.045em; }
+.recommendation-hero > div > p:last-child { max-width: 720px; margin: 20px 0 0; color: var(--muted); font: 1.08rem/1.6 var(--serif); }
+.provider-notice { display: flex; gap: 18px; padding: 16px 20px; margin-bottom: 54px; color: #69411d; background: #f0dfbd; border-left: 4px solid var(--gold); font-size: .82rem; }
+.provider-notice strong { flex: 0 0 auto; text-transform: uppercase; letter-spacing: .08em; font-size: .68rem; }
+.recommendation-section { margin-top: 62px; }
+.section-heading { display: flex; justify-content: space-between; align-items: end; gap: 30px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.section-heading h2 { margin: 0; font: 600 clamp(2rem, 4vw, 3.4rem)/1 var(--serif); }
+.section-heading p:last-child { margin: 10px 0 0; color: var(--muted); }
+.section-count { font: 500 3rem/1 var(--serif); color: var(--rust); }
+.recommendation-list { display: grid; }
+.recommendation-card { display: grid; grid-template-columns: 120px minmax(0, 1fr) 185px; gap: 28px; padding: 34px 0; border-bottom: 1px solid var(--line); animation: reveal .4s both; }
+.recommendation-cover .cover { aspect-ratio: 2 / 3; width: 120px; box-shadow: 5px 8px 20px rgb(45 38 26 / 13%); }
+.recommendation-cover .cover-fallback span { font-size: 2.4rem; }
+.recommendation-cover .cover-fallback small { font-size: .68rem; }
+.recommendation-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--muted); font-size: .67rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.recommendation-main h3 { margin: 8px 0 3px; font: 600 1.65rem/1.15 var(--serif); }
+.recommendation-main h3 a { text-decoration: none; }
+.warning-list, .trait-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 13px 0 0; padding: 0; list-style: none; }
+.warning-badge { padding: 4px 8px; color: #714b24; background: #eadabc; border-radius: 2px; font-size: .63rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.warning-badge--alert { color: #812f25; background: #efd0c9; }
+.trait-list li { padding: 4px 9px; color: var(--forest); background: rgb(35 72 59 / 8%); border-radius: 20px; font-size: .65rem; font-weight: 700; }
+.recommendation-why { max-width: 760px; margin: 15px 0; font: 1rem/1.55 var(--serif); }
+.neighbor-list { display: flex; flex-wrap: wrap; gap: 7px; color: var(--muted); font-size: .7rem; }
+.neighbor-list strong { color: var(--ink); text-transform: uppercase; letter-spacing: .07em; }
+.neighbor-list span::after { content: "·"; margin-left: 7px; }
+.neighbor-list span:last-child::after { content: ""; }
+.score-details { margin-top: 16px; }
+.score-details summary { color: var(--rust); cursor: pointer; font-size: .72rem; font-weight: 800; }
+.signal-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin-top: 12px; background: var(--line); border: 1px solid var(--line); }
+.signal-grid div { display: grid; padding: 10px; background: var(--paper-light); }
+.signal-grid span { font-size: .62rem; text-transform: capitalize; }
+.signal-grid strong { font: 600 1.05rem var(--serif); }
+.signal-grid small { color: var(--muted); font-size: .6rem; }
+.feedback-panel { padding-left: 22px; border-left: 1px solid var(--line); }
+.feedback-panel > p { margin: 0 0 10px; color: var(--muted); font-size: .65rem; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; }
+.feedback-actions { display: grid; gap: 6px; }
+.feedback-actions button { width: 100%; padding: 7px 9px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 2px; text-align: left; font-size: .68rem; }
+.feedback-actions button:hover { border-color: var(--forest); }
+.feedback-actions button.is-recorded { color: white; background: var(--forest); border-color: var(--forest); }
+.recommendation-empty { padding: 46px 24px; background: rgb(255 255 255 / 25%); border-bottom: 1px solid var(--line); }
+.recommendation-empty p { margin: 0; font: 1.25rem var(--serif); }
+.recommendation-empty span { color: var(--muted); font-size: .75rem; }
+
 @keyframes reveal { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; } }
 
@@ -201,9 +247,13 @@ th { color: var(--muted); font-size: .64rem; text-transform: uppercase; letter-s
   .reading-card { grid-column: 1 / -1; }
   .detail-layout { grid-template-columns: 1fr; }
   .metadata-rail { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+  .recommendation-card { grid-template-columns: 90px minmax(0, 1fr); }
+  .recommendation-cover .cover { width: 90px; }
+  .feedback-panel { grid-column: 2; padding: 18px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+  .feedback-actions { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 560px) {
-  .site-header, .site-footer, .library-hero, .library-shell, .detail-page, .audit-page { width: min(100% - 28px, 1440px); }
+  .site-header, .site-footer, .library-hero, .library-shell, .detail-page, .audit-page, .recommendation-hero, .recommendation-section, .provider-notice { width: min(100% - 28px, 1440px); }
   .brand small { display: none; }
   .library-hero { margin-top: 38px; align-items: start; }
   .library-hero h1 { font-size: 3rem; }
@@ -221,4 +271,11 @@ th { color: var(--muted); font-size: .64rem; text-transform: uppercase; letter-s
   .reading-card { grid-column: 1 / -1; }
   .metadata-rail { display: block; }
   .audit-summary { grid-template-columns: 1fr; }
+  .site-header nav { gap: 10px; }
+  .site-header nav a { font-size: .64rem; }
+  .recommendation-card { grid-template-columns: 68px minmax(0, 1fr); gap: 16px; }
+  .recommendation-cover .cover { width: 68px; }
+  .recommendation-main h3 { font-size: 1.3rem; }
+  .signal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .feedback-actions { grid-template-columns: repeat(2, 1fr); }
 }

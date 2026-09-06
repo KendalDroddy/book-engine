@@ -20,6 +20,10 @@ from book_engine.web.queries import (
     get_library_page,
     get_provenance,
 )
+from book_engine.web.recommendations import (
+    get_recommendation_center,
+    record_recommendation_feedback,
+)
 from book_engine.web.viewmodels import LibraryFilters
 
 WEB_ROOT = Path(__file__).parent
@@ -87,6 +91,32 @@ def create_app(session_factory: sessionmaker[Session] = SessionLocal) -> FastAPI
             request=request,
             name="library/index.html",
             context={"result": result},
+        )
+
+    @application.get("/recommendations", response_class=HTMLResponse)
+    def recommendations(
+        request: Request,
+        session: Annotated[Session, Depends(database_session)],
+    ) -> HTMLResponse:
+        center = get_recommendation_center(session)
+        return templates.TemplateResponse(
+            request=request,
+            name="recommendations/index.html",
+            context={"center": center},
+        )
+
+    @application.post("/recommendations/{item_id}/feedback/{action}")
+    def recommendation_feedback(
+        item_id: int,
+        action: str,
+        session: Annotated[Session, Depends(database_session)],
+    ) -> RedirectResponse:
+        try:
+            record_recommendation_feedback(session, item_id, action)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return RedirectResponse(
+            f"/recommendations#recommendation-{item_id}", status_code=303
         )
 
     @application.get("/books/{work_id}", response_class=HTMLResponse)

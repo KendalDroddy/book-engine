@@ -1,6 +1,11 @@
 """Model registry used by Alembic and tests."""
 
 from book_engine.catalog.models import Author, Edition, Identifier, Work, WorkAuthor
+from book_engine.discovery.models import (
+    DiscoveryCandidate,
+    DiscoveryQuery,
+    DiscoveryRun,
+)
 from book_engine.enrichment.models import (
     Concept,
     CoverCandidate,
@@ -23,6 +28,7 @@ from book_engine.library.models import (
 from book_engine.recommendations.models import (
     DerivationRun,
     RecommendationExplanation,
+    RecommendationFeedback,
     RecommendationItem,
     RecommendationNeighbor,
     RecommendationRun,
@@ -41,6 +47,9 @@ __all__ = [
     "Concept",
     "CoverCandidate",
     "Edition",
+    "DiscoveryCandidate",
+    "DiscoveryQuery",
+    "DiscoveryRun",
     "EnrichmentAttempt",
     "EnrichmentRun",
     "Identifier",
@@ -62,6 +71,7 @@ __all__ = [
     "ConceptFacetMapping",
     "DerivationRun",
     "RecommendationExplanation",
+    "RecommendationFeedback",
     "RecommendationItem",
     "RecommendationNeighbor",
     "RecommendationRun",

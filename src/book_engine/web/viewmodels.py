@@ -131,3 +131,55 @@ class ProvenanceView:
     provider_responses: int
     concept_claims: int
     latest_enrichment_at: datetime | None
+
+
+@dataclass(frozen=True)
+class RecommendationSignalItem:
+    name: str
+    raw_value: float
+    weight: float
+    contribution: float
+
+
+@dataclass(frozen=True)
+class RecommendationNeighborItem:
+    title: str
+    similarity: float
+
+
+@dataclass(frozen=True)
+class RecommendationCard:
+    item_id: int
+    work_id: int
+    title: str
+    author: str
+    cover_url: str | None
+    score: float
+    match_label: str
+    confidence_label: str
+    repetitive: bool
+    matching_traits: tuple[str, ...]
+    signals: tuple[RecommendationSignalItem, ...]
+    neighbors: tuple[RecommendationNeighborItem, ...]
+    explanation: str
+    feedback_actions: frozenset[str]
+    in_library: bool
+
+    @property
+    def id(self) -> int:
+        return self.work_id
+
+
+@dataclass(frozen=True)
+class RecommendationSection:
+    title: str
+    description: str
+    run_id: int | None
+    cards: tuple[RecommendationCard, ...]
+
+
+@dataclass(frozen=True)
+class RecommendationCenter:
+    best_matches: RecommendationSection
+    want_to_read: RecommendationSection
+    provider_message: str | None

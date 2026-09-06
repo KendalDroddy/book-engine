@@ -62,3 +62,37 @@ def test_openlibrary_parses_recorded_search_and_detail_payloads() -> None:
     assert result.metadata.subjects == ("Example subject", "Structured subject")
     assert result.metadata.series == ("Example Series, #1",)
     assert result.metadata.cover_id == "123456"
+
+
+def test_openlibrary_discovery_accepts_bare_work_keys_and_uses_language_hint() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["q"] == 'subject:"geopolitics"'
+        assert request.url.params["lang"] == "en"
+        assert request.url.params["limit"] == "3"
+        return httpx.Response(
+            200,
+            json={
+                "numFound": 1,
+                "docs": [
+                    {
+                        "key": "OL123W",
+                        "title": "A Geopolitical Book",
+                        "author_name": ["Example Author"],
+                        "first_publish_year": 2001,
+                    }
+                ],
+            },
+        )
+
+    provider = OpenLibraryProvider(
+        client=httpx.Client(
+            transport=httpx.MockTransport(handler),
+            base_url="https://openlibrary.org",
+        ),
+        minimum_interval=0,
+    )
+
+    result = provider.discover('subject:"geopolitics"', 3)
+
+    assert len(result.candidates) == 1
+    assert result.candidates[0].external_work_id == "OL123W"

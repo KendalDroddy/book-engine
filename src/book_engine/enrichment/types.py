@@ -98,12 +98,25 @@ class ProviderMetadataResult:
     metadata: BookMetadata
 
 
+@dataclass(frozen=True)
+class ProviderDiscoveryResult:
+    request_key: str
+    endpoint: str
+    status_code: int
+    raw_payload: dict[str, Any]
+    candidates: tuple[MetadataCandidate, ...]
+
+
 class MetadataProvider(Protocol):
     name: str
 
     def search(self, lookup: BookLookup) -> ProviderSearchResult: ...
 
     def fetch(self, candidate: MetadataCandidate) -> ProviderMetadataResult: ...
+
+
+class DiscoveryProvider(MetadataProvider, Protocol):
+    def discover(self, query: str, limit: int) -> ProviderDiscoveryResult: ...
 
 
 class ProviderError(RuntimeError):

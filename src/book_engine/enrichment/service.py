@@ -30,6 +30,7 @@ from book_engine.enrichment.types import (
     MatchDecision,
     MetadataProvider,
     ProviderError,
+    ProviderMetadataResult,
 )
 
 
@@ -45,6 +46,88 @@ class EnrichmentReport:
     accepted_fields: tuple[str, ...]
     candidate_fields: tuple[str, ...]
     error: str | None = None
+
+
+def ingest_known_candidate_metadata(
+    session: Session,
+    work_id: int,
+    provider_name: str,
+    candidate: object,
+    result: ProviderMetadataResult,
+) -> int:
+    """Merge a provider-identified work without repeating identity search."""
+    from book_engine.enrichment.types import MetadataCandidate
+
+    if not isinstance(candidate, MetadataCandidate):
+        raise TypeError("candidate must be MetadataCandidate")
+    lookup = _build_lookup(session, work_id)
+    now = _utc_now()
+    run = EnrichmentRun(
+        provider=provider_name,
+        mode="discovery",
+        status="running",
+        started_at=now,
+        requested_count=1,
+        configuration={"identity_source": "discovery_query"},
+    )
+    session.add(run)
+    session.flush()
+    attempt = EnrichmentAttempt(
+        run_id=run.id,
+        work_id=work_id,
+        edition_id=lookup.edition_id,
+        provider=provider_name,
+        lookup_strategy="known_external_work_id",
+        lookup_key=f"work:{candidate.external_work_id}",
+        status="running",
+        match_method="discovery_external_work_id",
+        match_score=1.0,
+        decision_reason="Provider work identity came directly from discovery",
+        candidate_summary=[
+            {
+                "external_work_id": candidate.external_work_id,
+                "title": candidate.title,
+                "authors": list(candidate.authors),
+                "relation": "selected",
+            }
+        ],
+        started_at=now,
+    )
+    session.add(attempt)
+    session.flush()
+    response = _store_response(
+        session,
+        attempt_id=attempt.id,
+        provider=provider_name,
+        operation="fetch",
+        request_key=result.request_key,
+        endpoint=result.endpoint,
+        status_code=result.status_code,
+        outcome="success",
+        payload=result.raw_payload,
+    )
+    session.add(
+        MetadataMatch(
+            attempt_id=attempt.id,
+            provider_response_id=response.id,
+            work_id=work_id,
+            edition_id=lookup.edition_id,
+            provider=provider_name,
+            external_work_id=candidate.external_work_id,
+            external_edition_id=result.metadata.external_edition_id,
+            match_method="discovery_external_work_id",
+            match_score=1.0,
+            status="accepted",
+            evidence={"source": "discovery_query", "relation": "selected"},
+        )
+    )
+    _merge_metadata(session, lookup, result.metadata, response, 1.0)
+    attempt.status = "succeeded"
+    attempt.completed_at = _utc_now()
+    run.succeeded_count = 1
+    _complete_run(run)
+    session.commit()
+    return attempt.id
 
 
 def enrich_work(

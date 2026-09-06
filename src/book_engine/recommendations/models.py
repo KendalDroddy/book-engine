@@ -34,9 +34,7 @@ class TraitDefinition(TimestampMixin, Base):
 class DerivationRun(TimestampMixin, Base):
     __tablename__ = "derivation_runs"
     __table_args__ = (
-        CheckConstraint(
-            "status IN ('running', 'completed', 'failed')", name="status"
-        ),
+        CheckConstraint("status IN ('running', 'completed', 'failed')", name="status"),
         UniqueConstraint("provider", "model", "purpose", "input_hash"),
     )
 
@@ -108,9 +106,7 @@ class WorkRepresentation(TimestampMixin, Base):
 class WorkEmbedding(TimestampMixin, Base):
     __tablename__ = "work_embeddings"
     __table_args__ = (
-        UniqueConstraint(
-            "work_id", "purpose", "provider", "model", "input_hash"
-        ),
+        UniqueConstraint("work_id", "purpose", "provider", "model", "input_hash"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -133,9 +129,7 @@ class WorkEmbedding(TimestampMixin, Base):
 class TasteProfileRun(TimestampMixin, Base):
     __tablename__ = "taste_profile_runs"
     __table_args__ = (
-        CheckConstraint(
-            "status IN ('running', 'completed', 'failed')", name="status"
-        ),
+        CheckConstraint("status IN ('running', 'completed', 'failed')", name="status"),
         UniqueConstraint("algorithm_version", "input_hash"),
     )
 
@@ -170,9 +164,7 @@ class TasteProfileValue(Base):
 class RecommendationRun(TimestampMixin, Base):
     __tablename__ = "recommendation_runs"
     __table_args__ = (
-        CheckConstraint(
-            "status IN ('running', 'completed', 'failed')", name="status"
-        ),
+        CheckConstraint("status IN ('running', 'completed', 'failed')", name="status"),
         UniqueConstraint("algorithm_version", "input_hash"),
     )
 
@@ -205,6 +197,11 @@ class RecommendationItem(TimestampMixin, Base):
     confidence_score: Mapped[float] = mapped_column(Float)
     confidence_label: Mapped[str] = mapped_column(String(20))
     repetitive: Mapped[bool] = mapped_column(Boolean, default=False)
+    display_eligible: Mapped[bool] = mapped_column(Boolean, default=True)
+    eligible_rank: Mapped[int | None]
+    eligibility_reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    eligibility_warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
+    eligibility_provenance: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
 class RecommendationSignal(Base):
@@ -250,3 +247,24 @@ class RecommendationExplanation(Base):
     rendered_text: Mapped[str]
     generator: Mapped[str] = mapped_column(String(100))
     generator_version: Mapped[str] = mapped_column(String(50))
+
+
+class RecommendationFeedback(TimestampMixin, Base):
+    __tablename__ = "recommendation_feedback"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('add_to_want_to_read', 'not_interested', "
+            "'loved', 'liked', 'fine', 'miss')",
+            name="action",
+        ),
+        UniqueConstraint("work_id", "action"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    work_id: Mapped[int] = mapped_column(ForeignKey("works.id", ondelete="CASCADE"))
+    recommendation_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("recommendation_items.id", ondelete="SET NULL")
+    )
+    action: Mapped[str] = mapped_column(String(50))
+    source: Mapped[str] = mapped_column(String(100))
+    context_json: Mapped[dict[str, Any]] = mapped_column(JSON)

@@ -230,6 +230,105 @@ def recommend_validate(
                 typer.echo(f"  Why: {explanation.rendered_text}")
 
 
+@app.command("discover-recommend")
+def discover_recommend(
+    limit: int = typer.Option(30, "--limit", min=1, max=100),
+) -> None:
+    """Discover and rank a bounded set of external candidates."""
+    from sqlalchemy import select
+
+    from book_engine.catalog.models import Work
+    from book_engine.discovery.models import DiscoveryCandidate
+    from book_engine.discovery.service import discover_candidates
+    from book_engine.recommendations.models import (
+        RecommendationExplanation,
+        RecommendationItem,
+        RecommendationNeighbor,
+        RecommendationSignal,
+    )
+    from book_engine.recommendations.service import run_discovery_validation
+
+    settings = get_settings()
+    provider = OpenLibraryProvider(
+        contact_email=settings.openlibrary_contact_email,
+        timeout_seconds=settings.openlibrary_timeout_seconds,
+    )
+    with SessionLocal() as session:
+        discovery = discover_candidates(session, provider, limit=limit)
+        typer.echo(f"Discovery run: {discovery.run_id}")
+        typer.echo(f"Selected: {discovery.selected_count}")
+        typer.echo(f"Enriched: {discovery.enriched_count}")
+        typer.echo(f"Enrichment failures: {discovery.failed_count}")
+        typer.echo(f"Excluded library/duplicates: {discovery.excluded_count}")
+        typer.echo(
+            f"External requests this invocation: {discovery.external_request_count}"
+        )
+        typer.echo(f"Cached discovery: {discovery.cache_hit}")
+        if discovery.selected_count == 0:
+            raise typer.Exit(code=1)
+        recommendation = run_discovery_validation(session, discovery.run_id)
+        typer.echo(f"Recommendation run: {recommendation.run_id}")
+        typer.echo(f"Cached recommendation: {recommendation.cached_run}")
+        typer.echo(f"Embedding cache hits: {recommendation.embedding_cache_hits}")
+
+        typer.echo("\nTop recommendations:")
+        items = session.scalars(
+            select(RecommendationItem)
+            .where(RecommendationItem.run_id == recommendation.run_id)
+            .order_by(RecommendationItem.rank)
+            .limit(10)
+        ).all()
+        for item in items:
+            candidate = session.scalar(
+                select(DiscoveryCandidate).where(
+                    DiscoveryCandidate.run_id == discovery.run_id,
+                    DiscoveryCandidate.work_id == item.work_id,
+                )
+            )
+            title = session.scalar(select(Work.title).where(Work.id == item.work_id))
+            assert candidate is not None
+            typer.echo(
+                f"\n{item.rank}. {title} | score={item.reranked_score:.1f} "
+                f"({item.match_label}) | confidence={item.confidence_label} "
+                f"| repetitive={item.repetitive}"
+            )
+            typer.echo("  Discovered via: " + ", ".join(candidate.cluster_slugs))
+            signals = session.scalars(
+                select(RecommendationSignal)
+                .where(RecommendationSignal.recommendation_item_id == item.id)
+                .order_by(RecommendationSignal.contribution.desc())
+            ).all()
+            for signal in signals:
+                evidence = f" | {signal.evidence_json}" if signal.evidence_json else ""
+                typer.echo(
+                    f"  {signal.signal_name}: raw={signal.raw_value:.3f}, "
+                    f"weight={signal.weight:.2f}, +{signal.contribution:.2f}{evidence}"
+                )
+            neighbors = session.execute(
+                select(Work.title, RecommendationNeighbor.similarity)
+                .join(
+                    RecommendationNeighbor,
+                    RecommendationNeighbor.read_work_id == Work.id,
+                )
+                .where(RecommendationNeighbor.recommendation_item_id == item.id)
+                .order_by(RecommendationNeighbor.rank)
+            ).all()
+            typer.echo(
+                "  Closest reads: "
+                + "; ".join(
+                    f"{neighbor_title} ({similarity:.3f})"
+                    for neighbor_title, similarity in neighbors
+                )
+            )
+            explanation = session.scalar(
+                select(RecommendationExplanation).where(
+                    RecommendationExplanation.recommendation_item_id == item.id
+                )
+            )
+            if explanation:
+                typer.echo(f"  Why: {explanation.rendered_text}")
+
+
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),

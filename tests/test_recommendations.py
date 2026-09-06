@@ -24,13 +24,106 @@ from book_engine.recommendations.models import (
     WorkRepresentation,
     WorkTraitValue,
 )
-from book_engine.recommendations.service import SIGNAL_WEIGHTS, run_validation
+from book_engine.recommendations.service import (
+    BROAD_TRAITS,
+    NEIGHBOR_EVIDENCE_THRESHOLD,
+    SIGNAL_WEIGHTS,
+    _above_threshold,
+    _discovery_alignment,
+    _display_eligibility,
+    run_validation,
+)
 from book_engine.recommendations.traits import TRAIT_EXTRACTOR_VERSION
 from book_engine.recommendations.types import EmbeddingBatch
 from book_engine.web.facets import sync_browse_facets
 from book_engine.web.models import BrowseFacet, ConceptFacetMapping
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def test_predictive_evidence_is_separate_from_broad_categories() -> None:
+    assert {"fiction", "history", "science-fiction"} <= BROAD_TRAITS
+    assert (
+        SIGNAL_WEIGHTS["specific_trait_affinity"]
+        > SIGNAL_WEIGHTS["broad_trait_affinity"]
+    )
+    assert _above_threshold(NEIGHBOR_EVIDENCE_THRESHOLD - 0.01, 0.22) == 0.0
+    assert _above_threshold(0.5, 0.22) > 0.0
+
+
+def test_discovery_alignment_requires_enriched_trait_support() -> None:
+    supported, supported_evidence = _discovery_alignment(
+        ("systems-failure",),
+        {"nonfiction", "systems-failure"},
+        {
+            "systems-failure": [
+                {
+                    "evidence": {
+                        "matched_phrases": ["systems failure"],
+                        "matched_terms": ["failure", "collapse"],
+                    }
+                }
+            ]
+        },
+    )
+    unsupported, unsupported_evidence = _discovery_alignment(
+        ("systems-failure",), {"fiction"}
+    )
+
+    assert supported == 0.6
+    assert supported_evidence["strength"] == "moderate"
+    assert supported_evidence["matched_traits"] == ["systems-failure"]
+    assert unsupported == -0.5
+    assert unsupported_evidence["strength"] == "unsupported"
+    assert unsupported_evidence["supported"] is False
+
+
+def test_discovery_alignment_grades_low_information_and_multiple_traits() -> None:
+    weak, weak_evidence = _discovery_alignment(
+        ("business-organizations",),
+        {"business-organizational-systems"},
+        {
+            "business-organizational-systems": [
+                {"evidence": {"matched_phrases": [], "matched_terms": ["business"]}}
+            ]
+        },
+    )
+    strong, strong_evidence = _discovery_alignment(
+        ("survival-exploration",),
+        {"survival", "exploration", "human-decision-making"},
+    )
+
+    assert weak == 0.25
+    assert weak_evidence["strength"] == "weak"
+    assert strong == 1.0
+    assert strong_evidence["strength"] == "strong"
+
+
+def test_display_eligibility_requires_compounded_quality_problems() -> None:
+    sparse_only = _display_eligibility(
+        broad_only=False,
+        specific_affinity=0.45,
+        profile_similarity=0.0,
+        nearest_score=0.0,
+        alignment=0.6,
+        alignment_evidence={"strength": "moderate"},
+        quality_flags=[{"code": "sparse_metadata"}],
+    )
+    unsupported_sparse = _display_eligibility(
+        broad_only=False,
+        specific_affinity=0.45,
+        profile_similarity=0.2,
+        nearest_score=0.3,
+        alignment=-0.5,
+        alignment_evidence={"strength": "unsupported"},
+        quality_flags=[{"code": "sparse_metadata"}],
+    )
+
+    assert sparse_only["eligible"] is True
+    assert unsupported_sparse["eligible"] is False
+    assert unsupported_sparse["reasons"] == [
+        "unsupported_discovery_compounded_by_weak_evidence"
+    ]
 
 
 def _prepare_library(session: Session) -> None:
