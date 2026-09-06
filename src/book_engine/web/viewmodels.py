@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,7 @@ class RecommendationSignalItem:
     raw_value: float
     weight: float
     contribution: float
+    evidence: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -164,6 +166,15 @@ class RecommendationCard:
     explanation: str
     feedback_actions: frozenset[str]
     in_library: bool
+    discovery_clusters: tuple[str, ...]
+    strongest_specific_evidence: tuple[str, ...]
+    raw_rank: int
+    diversified_rank: int
+    eligible_rank: int | None
+    display_eligible: bool
+    eligibility_reasons: tuple[str, ...]
+    eligibility_warnings: tuple[str, ...]
+    eligibility_provenance: dict[str, Any]
 
     @property
     def id(self) -> int:
@@ -176,10 +187,12 @@ class RecommendationSection:
     description: str
     run_id: int | None
     cards: tuple[RecommendationCard, ...]
+    kind: str
 
 
 @dataclass(frozen=True)
 class RecommendationCenter:
-    best_matches: RecommendationSection
+    recommended_for_you: RecommendationSection
     want_to_read: RecommendationSection
+    withheld: tuple[RecommendationCard, ...]
     provider_message: str | None

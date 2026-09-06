@@ -14,7 +14,7 @@
 <aside class="provider-notice" role="status"><strong>Discovery status</strong><span>{{ center.provider_message }}</span></aside>
 {% endif %}
 
-{% for section in [center.best_matches, center.want_to_read] %}
+{% for section in [center.recommended_for_you, center.want_to_read] %}
 <section class="recommendation-section">
   <header class="section-heading">
     <div><p class="eyebrow">{% if section.run_id %}Run {{ section.run_id }}{% else %}Awaiting candidates{% endif %}</p><h2>{{ section.title }}</h2><p>{{ section.description }}</p></div>
@@ -26,23 +26,31 @@
     <article class="recommendation-card" id="recommendation-{{ book.item_id }}">
       <div class="recommendation-cover">{% if book.in_library %}<a href="/books/{{ book.work_id }}">{{ cover(book) }}</a>{% else %}{{ cover(book) }}{% endif %}</div>
       <div class="recommendation-main">
-        <div class="recommendation-meta"><span>#{{ loop.index }}</span><span>{{ "%.1f"|format(book.score) }} match</span><span>{{ book.confidence_label }} confidence</span></div>
+        <div class="recommendation-meta">
+          <span>#{% if section.kind == 'discovered' %}{{ book.eligible_rank }}{% else %}{{ loop.index }}{% endif %}</span>
+          <span>{{ "%.1f"|format(book.score) }} match</span><span>{{ book.confidence_label }} confidence</span>
+          {% if section.kind == 'discovered' %}<span>Raw #{{ book.raw_rank }} · Diversified #{{ book.diversified_rank }}</span>{% endif %}
+        </div>
         <h3>{% if book.in_library %}<a href="/books/{{ book.work_id }}">{{ book.title }}</a>{% else %}{{ book.title }}{% endif %}</h3>
         <p class="book-author">{{ book.author }}</p>
+        {% if book.discovery_clusters %}<p class="discovery-source">Discovered through {% for cluster in book.discovery_clusters %}<span>{{ cluster|replace('-', ' ') }}</span>{% endfor %}</p>{% endif %}
         <div class="warning-list">
           {% if book.match_label == 'exploratory' %}<span class="warning-badge">Weak match</span>{% endif %}
           {% if book.confidence_label == 'low' %}<span class="warning-badge warning-badge--alert">Low confidence</span>{% endif %}
           {% if book.repetitive %}<span class="warning-badge">May feel repetitive</span>{% endif %}
         </div>
-        {% if book.matching_traits %}<ul class="trait-list" aria-label="Matching traits">{% for trait in book.matching_traits %}<li>{{ trait }}</li>{% endfor %}</ul>{% endif %}
-        <p class="recommendation-why">{{ book.explanation }}</p>
+        {% if book.strongest_specific_evidence %}<ul class="trait-list" aria-label="Strongest specific evidence">{% for trait in book.strongest_specific_evidence %}<li>{{ trait }}</li>{% endfor %}</ul>{% endif %}
+        <div class="recommendation-why"><strong>Why this book?</strong><p>{{ book.explanation }}</p></div>
         <div class="neighbor-list"><strong>Closest reads</strong>{% for neighbor in book.neighbors %}<span>{{ neighbor.title }} <small>{{ "%.3f"|format(neighbor.similarity) }}</small></span>{% endfor %}</div>
-        <details class="score-details"><summary>Inspect score breakdown</summary><div class="signal-grid">{% for signal in book.signals %}<div><span>{{ signal.name|replace('_', ' ') }}</span><strong>+{{ "%.2f"|format(signal.contribution) }}</strong><small>{{ "%.3f"|format(signal.raw_value) }} × {{ "%.2f"|format(signal.weight) }}</small></div>{% endfor %}</div></details>
+        <details class="score-details"><summary>Inspect score and evidence</summary><div class="signal-grid">{% for signal in book.signals %}<div><span>{{ signal.name|replace('_', ' ') }}</span><strong>{% if signal.contribution >= 0 %}+{% endif %}{{ "%.2f"|format(signal.contribution) }}</strong><small>{{ "%.3f"|format(signal.raw_value) }} × {{ "%.2f"|format(signal.weight) }}</small>{% if signal.evidence %}<small>{{ signal.evidence }}</small>{% endif %}</div>{% endfor %}</div>{% if section.kind == 'discovered' %}<div class="rank-audit"><span>Raw rank #{{ book.raw_rank }}</span><span>Diversified rank #{{ book.diversified_rank }}</span><span>Eligible rank #{{ book.eligible_rank }}</span></div>{% endif %}</details>
       </div>
       <aside class="feedback-panel">
-        <p>Teach the engine</p>
+        <p>{% if section.kind == 'discovered' %}Your decision{% else %}Teach the engine{% endif %}</p>
         <div class="feedback-actions">
-          {% for action, label in [('add_to_want_to_read', 'Add to Want to Read'), ('not_interested', 'Not Interested'), ('loved', 'Loved'), ('liked', 'Liked'), ('fine', 'Fine'), ('miss', 'Miss')] %}
+          {% set primary_actions = [('add_to_want_to_read', 'Add to Want to Read'), ('not_interested', 'Not Interested')] %}
+          {% set all_actions = primary_actions + [('loved', 'Loved'), ('liked', 'Liked'), ('fine', 'Fine'), ('miss', 'Miss')] %}
+          {% set actions = primary_actions if section.kind == 'discovered' else all_actions %}
+          {% for action, label in actions %}
           <form method="post" action="/recommendations/{{ book.item_id }}/feedback/{{ action }}"><button type="submit"{% if action in book.feedback_actions %} class="is-recorded" aria-pressed="true"{% endif %}>{{ label }}{% if action in book.feedback_actions %} · Recorded{% endif %}</button></form>
           {% endfor %}
         </div>
@@ -55,4 +63,23 @@
   {% endif %}
 </section>
 {% endfor %}
+
+{% if center.withheld %}
+<section class="recommendation-section recommendation-diagnostics">
+  <details>
+    <summary><strong>Withheld candidate diagnostics</strong><span>{{ center.withheld|length }} candidates preserved but excluded from primary recommendations</span></summary>
+    <div class="diagnostic-list">
+      {% for book in center.withheld %}
+      <article>
+        <div><strong>{{ book.title }}</strong><span>{{ book.author }}</span></div>
+        <p>Raw #{{ book.raw_rank }} · Diversified #{{ book.diversified_rank }} · {{ "%.1f"|format(book.score) }}</p>
+        <ul>{% for reason in book.eligibility_reasons %}<li>{{ reason|replace('_', ' ') }}</li>{% endfor %}</ul>
+        {% if book.eligibility_warnings %}<small>Warnings: {{ book.eligibility_warnings|join(', ')|replace('_', ' ') }}</small>{% endif %}
+        <details><summary>Eligibility provenance</summary><pre>{{ book.eligibility_provenance }}</pre></details>
+      </article>
+      {% endfor %}
+    </div>
+  </details>
+</section>
+{% endif %}
 {% endblock %}

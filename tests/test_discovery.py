@@ -27,7 +27,10 @@ from book_engine.recommendations.models import (
 )
 from book_engine.recommendations.service import run_discovery_validation
 from book_engine.web.facets import sync_browse_facets
-from book_engine.web.recommendations import record_recommendation_feedback
+from book_engine.web.recommendations import (
+    get_recommendation_center,
+    record_recommendation_feedback,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -151,9 +154,32 @@ def test_discovery_is_bounded_provenanced_ranked_and_cached(
     assert second_recommendation.cached_run is True
     assert db_session.scalar(select(func.count()).select_from(Work)) == work_count
 
+    center = get_recommendation_center(db_session)
+    assert center.recommended_for_you.run_id == recommendation.run_id
+    assert all(card.display_eligible for card in center.recommended_for_you.cards)
+    assert all(not card.in_library for card in center.recommended_for_you.cards)
+    assert center.want_to_read.title == "Already on Your Radar"
+
+    withheld_item = db_session.scalar(
+        select(RecommendationItem)
+        .where(RecommendationItem.run_id == recommendation.run_id)
+        .order_by(RecommendationItem.rank.desc())
+    )
+    assert withheld_item is not None
+    withheld_item.display_eligible = False
+    withheld_item.eligible_rank = None
+    withheld_item.eligibility_reasons = ["fixture_diagnostic"]
+    db_session.commit()
+    center = get_recommendation_center(db_session)
+    assert all(
+        card.item_id != withheld_item.id for card in center.recommended_for_you.cards
+    )
+    assert withheld_item.id in {card.item_id for card in center.withheld}
+
     item = db_session.scalar(
         select(RecommendationItem).where(
-            RecommendationItem.run_id == recommendation.run_id
+            RecommendationItem.run_id == recommendation.run_id,
+            RecommendationItem.display_eligible.is_(True),
         )
     )
     assert item is not None
@@ -191,3 +217,7 @@ def test_discovery_is_bounded_provenanced_ranked_and_cached(
         select(LibraryEntry).where(LibraryEntry.work_id == item.work_id)
     )
     assert entry is not None and entry.status == "want_to_read"
+    center = get_recommendation_center(db_session)
+    assert item.work_id not in {
+        card.work_id for card in center.recommended_for_you.cards
+    }

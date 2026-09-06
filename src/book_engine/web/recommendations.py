@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from book_engine.catalog.models import Author, Edition, Work, WorkAuthor
-from book_engine.discovery.models import DiscoveryRun
+from book_engine.discovery.models import DiscoveryCandidate, DiscoveryRun
 from book_engine.library.models import LibraryEntry
 from book_engine.recommendations.models import (
     RecommendationExplanation,
@@ -40,18 +40,27 @@ def get_recommendation_center(session: Session) -> RecommendationCenter:
             "Saved local recommendations remain available."
         )
     return RecommendationCenter(
-        best_matches=RecommendationSection(
-            title="Best Matches",
-            description="New books discovered beyond your current library.",
+        recommended_for_you=RecommendationSection(
+            title="Recommended for You",
+            description=(
+                "New books discovered beyond your library, ranked by fit and "
+                "screened for candidate quality."
+            ),
             run_id=best_run.id if best_run else None,
-            cards=_cards(session, best_run),
+            cards=_cards(session, best_run, eligibility="eligible"),
+            kind="discovered",
         ),
         want_to_read=RecommendationSection(
-            title="Want to Read Ranked",
-            description="Your existing Want to Read shelf, ordered by current fit.",
+            title="Already on Your Radar",
+            description=(
+                "Books already on your Want to Read shelf, reordered by current fit. "
+                "These are not newly discovered recommendations."
+            ),
             run_id=want_run.id if want_run else None,
             cards=_cards(session, want_run),
+            kind="want_to_read",
         ),
+        withheld=_cards(session, best_run, eligibility="withheld"),
         provider_message=provider_message,
     )
 
@@ -84,6 +93,8 @@ def record_recommendation_feedback(
             "algorithm_version": run.algorithm_version,
             "candidate_source": run.candidate_source,
             "rank": item.rank,
+            "eligible_rank": item.eligible_rank,
+            "display_eligible": item.display_eligible,
             "reranked_score": item.reranked_score,
             "confidence_label": item.confidence_label,
         },
@@ -122,15 +133,31 @@ def _latest_run(session: Session, source: str) -> RecommendationRun | None:
 
 
 def _cards(
-    session: Session, run: RecommendationRun | None
+    session: Session,
+    run: RecommendationRun | None,
+    *,
+    eligibility: str | None = None,
 ) -> tuple[RecommendationCard, ...]:
     if run is None:
         return ()
-    items = session.scalars(
-        select(RecommendationItem)
-        .where(RecommendationItem.run_id == run.id)
-        .order_by(RecommendationItem.rank)
-    ).all()
+    statement = select(RecommendationItem).where(RecommendationItem.run_id == run.id)
+    if eligibility == "eligible":
+        statement = statement.where(RecommendationItem.display_eligible.is_(True))
+        statement = statement.where(
+            ~select(LibraryEntry.id)
+            .where(LibraryEntry.work_id == RecommendationItem.work_id)
+            .exists()
+        )
+        statement = statement.order_by(RecommendationItem.eligible_rank)
+    elif eligibility == "withheld":
+        statement = statement.where(RecommendationItem.display_eligible.is_(False))
+        statement = statement.order_by(RecommendationItem.rank)
+    else:
+        statement = statement.order_by(RecommendationItem.rank)
+    items = session.scalars(statement).all()
+    discovery_run_id = run.configuration.get("source_reference", {}).get(
+        "discovery_run_id"
+    )
     cards: list[RecommendationCard] = []
     for item in items:
         work = session.get(Work, item.work_id)
@@ -154,7 +181,11 @@ def _cards(
             .order_by(RecommendationSignal.contribution.desc())
         ).all()
         trait_signal = next(
-            (signal for signal in signals if signal.signal_name == "trait_affinity"),
+            (
+                signal
+                for signal in signals
+                if signal.signal_name == "specific_trait_affinity"
+            ),
             None,
         )
         traits = (
@@ -168,16 +199,30 @@ def _cards(
                 RecommendationNeighbor, RecommendationNeighbor.read_work_id == Work.id
             )
             .where(RecommendationNeighbor.recommendation_item_id == item.id)
+            .where(RecommendationNeighbor.relationship_type == "semantic_neighbor")
             .order_by(RecommendationNeighbor.rank)
         ).all()
+        explanation_record = session.scalar(
+            select(RecommendationExplanation).where(
+                RecommendationExplanation.recommendation_item_id == item.id
+            )
+        )
         explanation = (
-            session.scalar(
-                select(RecommendationExplanation.rendered_text).where(
-                    RecommendationExplanation.recommendation_item_id == item.id
+            _concise_explanation(explanation_record.rendered_text)
+            if explanation_record
+            else "No explanation is available for this run."
+        )
+        structured_evidence = (
+            explanation_record.structured_evidence if explanation_record else {}
+        )
+        discovery = None
+        if isinstance(discovery_run_id, int):
+            discovery = session.scalar(
+                select(DiscoveryCandidate).where(
+                    DiscoveryCandidate.run_id == discovery_run_id,
+                    DiscoveryCandidate.work_id == work.id,
                 )
             )
-            or "No explanation is available for this run."
-        )
         feedback = frozenset(
             session.scalars(
                 select(RecommendationFeedback.action).where(
@@ -209,6 +254,7 @@ def _cards(
                         signal.raw_value,
                         signal.weight,
                         signal.contribution,
+                        signal.evidence_json,
                     )
                     for signal in signals
                 ),
@@ -219,6 +265,29 @@ def _cards(
                 explanation=explanation,
                 feedback_actions=feedback,
                 in_library=in_library,
+                discovery_clusters=tuple(discovery.cluster_slugs) if discovery else (),
+                strongest_specific_evidence=traits[:3],
+                raw_rank=int(structured_evidence.get("raw_rank", item.rank)),
+                diversified_rank=item.rank,
+                eligible_rank=item.eligible_rank,
+                display_eligible=item.display_eligible,
+                eligibility_reasons=tuple(item.eligibility_reasons),
+                eligibility_warnings=tuple(item.eligibility_warnings),
+                eligibility_provenance=item.eligibility_provenance,
             )
         )
     return tuple(cards)
+
+
+def _concise_explanation(value: str) -> str:
+    excluded = (
+        "Candidate-quality checks",
+        "Confidence is limited",
+        "It is withheld",
+    )
+    sentences = [
+        sentence.strip()
+        for sentence in value.split(".")
+        if sentence.strip() and not sentence.strip().startswith(excluded)
+    ]
+    return ". ".join(sentences[:3]) + "."

@@ -118,8 +118,9 @@ def test_recommendation_center_renders_local_results_and_feedback_is_idempotent(
 
     assert response.status_code == 200
     document = BeautifulSoup(response.text, "html.parser")
-    assert "Best Matches" in document.get_text()
-    assert "Want to Read Ranked" in document.get_text()
+    assert "Recommended for You" in document.get_text()
+    assert "Already on Your Radar" in document.get_text()
+    assert "not newly discovered recommendations" in document.get_text()
     assert "External discovery is temporarily unavailable" in document.get_text()
     card = document.select_one(".recommendation-card")
     assert card is not None
