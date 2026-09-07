@@ -332,6 +332,9 @@ def discover_recommend(
 @app.command("reputation")
 def reputation(
     discovery_run_id: int = typer.Option(1, "--discovery-run"),
+    force_refresh: bool = typer.Option(
+        False, "--force-refresh", help="Bypass cached results and failure cooldowns."
+    ),
 ) -> None:
     """Collect cached book reputation and calculate combined recommendation scores."""
     from book_engine.reputation.providers import GoogleBooksReputationProvider
@@ -343,7 +346,9 @@ def reputation(
         timeout_seconds=settings.google_books_timeout_seconds,
     )
     with SessionLocal() as session:
-        report = enrich_discovery_reputation(session, discovery_run_id, provider)
+        report = enrich_discovery_reputation(
+            session, discovery_run_id, provider, force_refresh=force_refresh
+        )
     typer.echo(f"Discovery run: {report.discovery_run_id}")
     typer.echo(f"Recommendation run: {report.recommendation_run_id}")
     typer.echo(f"Attempted: {report.attempted}")

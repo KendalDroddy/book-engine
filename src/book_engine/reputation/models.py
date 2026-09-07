@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     Float,
     ForeignKey,
+    Index,
     String,
     UniqueConstraint,
 )
@@ -23,7 +24,7 @@ class ReputationFetch(TimestampMixin, Base):
             "status IN ('succeeded', 'missed', 'ambiguous', 'failed')",
             name="status",
         ),
-        UniqueConstraint("provider", "input_hash"),
+        Index("ix_reputation_fetches_provider_input_hash", "provider", "input_hash"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -44,10 +45,7 @@ class ReputationFetch(TimestampMixin, Base):
 
 class ReputationObservation(TimestampMixin, Base):
     __tablename__ = "reputation_observations"
-    __table_args__ = (
-        UniqueConstraint("fetch_id"),
-        UniqueConstraint("provider", "provider_book_id", "model_version"),
-    )
+    __table_args__ = (UniqueConstraint("fetch_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     fetch_id: Mapped[int] = mapped_column(

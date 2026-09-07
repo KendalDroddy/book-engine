@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -26,7 +27,7 @@ from book_engine.recommendations.models import (
     RecommendationSignal,
 )
 from book_engine.recommendations.service import run_discovery_validation
-from book_engine.reputation.models import ReputationObservation
+from book_engine.reputation.models import ReputationFetch, ReputationObservation
 from book_engine.reputation.service import enrich_discovery_reputation
 from book_engine.reputation.types import (
     ReputationCandidate,
@@ -136,6 +137,109 @@ class FailingReputationProvider:
     def lookup(self, lookup: ReputationLookup) -> ReputationProviderResult:
         self.calls += 1
         raise RuntimeError("fixture provider unavailable")
+
+
+def test_forced_reputation_refresh_preserves_success_and_failure_history(
+    db_session: Session,
+) -> None:
+    import_goodreads_csv(db_session, FIXTURES / "goodreads_sample.csv")
+    discovery = discover_candidates(db_session, FixtureDiscoveryProvider(), limit=1)
+    recommendation = run_discovery_validation(db_session, discovery.run_id)
+    provider = FixtureReputationProvider()
+
+    def refresh(*, force: bool = False) -> object:
+        return enrich_discovery_reputation(
+            db_session, discovery.run_id, provider, force_refresh=force
+        )
+
+    refresh()
+    original_fetch = db_session.scalars(select(ReputationFetch)).one()
+    original_observation = db_session.scalars(select(ReputationObservation)).one()
+    original_payload = dict(original_fetch.raw_response or {})
+    original_time = original_fetch.fetched_at
+    refresh()
+    assert provider.calls == 1
+    refresh(force=True)
+    assert provider.calls == 2
+    assert (
+        db_session.scalar(select(func.count()).select_from(ReputationObservation)) == 2
+    )
+
+    failing = FailingReputationProvider()
+    failing.name = provider.name
+    failed = enrich_discovery_reputation(
+        db_session, discovery.run_id, failing, force_refresh=True
+    )
+    assert failed.failed == 1
+    failure = db_session.scalar(
+        select(ReputationFetch).where(ReputationFetch.status == "failed")
+    )
+    assert failure is not None
+    failure_time = failure.fetched_at
+    cooldown = enrich_discovery_reputation(db_session, discovery.run_id, provider)
+    assert cooldown.cache_hits == 1
+    assert cooldown.external_requests == 0
+    recovered = enrich_discovery_reputation(
+        db_session, discovery.run_id, provider, force_refresh=True
+    )
+    assert recovered.succeeded == 1
+    assert recovered.cache_hits == 0
+    assert recovered.external_requests == 1
+    assert provider.calls == 3
+    assert db_session.scalar(select(func.count()).select_from(ReputationFetch)) == 4
+    assert (
+        db_session.scalar(select(func.count()).select_from(ReputationObservation)) == 3
+    )
+    db_session.expire_all()
+    assert original_fetch.raw_response == original_payload
+    assert original_fetch.fetched_at == original_time
+    assert original_fetch.status == "succeeded"
+    assert original_observation.average_rating == 4.2
+    assert failure.error_message == "fixture provider unavailable"
+    assert failure.fetched_at == failure_time
+    assert failure.status == "failed"
+    latest = db_session.scalar(
+        select(ReputationFetch).order_by(ReputationFetch.id.desc())
+    )
+    assert latest is not None
+    assert latest.decision_provenance["previous_fetch_id"] == failure.id
+    assert latest.decision_provenance["force_refresh"] is True
+    item = db_session.scalar(
+        select(RecommendationItem).where(
+            RecommendationItem.run_id == recommendation.run_id
+        )
+    )
+    assert item is not None and item.reputation_observation_id is not None
+    assert (
+        enrich_discovery_reputation(db_session, discovery.run_id, provider).cache_hits
+        == 1
+    )
+    assert provider.calls == 3
+
+
+@pytest.mark.parametrize("status", ["missed", "ambiguous"])
+def test_force_refresh_bypasses_negative_result_cache(
+    db_session: Session, status: str
+) -> None:
+    import_goodreads_csv(db_session, FIXTURES / "goodreads_sample.csv")
+    discovery = discover_candidates(db_session, FixtureDiscoveryProvider(), limit=1)
+    run_discovery_validation(db_session, discovery.run_id)
+    provider = FixtureReputationProvider()
+    enrich_discovery_reputation(db_session, discovery.run_id, provider)
+    cached = db_session.scalars(select(ReputationFetch)).one()
+    cached.status = status
+    db_session.commit()
+    assert (
+        enrich_discovery_reputation(db_session, discovery.run_id, provider).cache_hits
+        == 1
+    )
+    forced = enrich_discovery_reputation(
+        db_session, discovery.run_id, provider, force_refresh=True
+    )
+    assert forced.external_requests == 1
+    assert forced.cache_hits == 0
+    assert cached.status == status
+    assert provider.calls == 2
 
 
 def test_discovery_is_bounded_provenanced_ranked_and_cached(

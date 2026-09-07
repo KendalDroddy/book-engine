@@ -45,12 +45,18 @@ def enrich_discovery_reputation(
     session: Session,
     discovery_run_id: int,
     provider: ReputationProvider,
+    *,
+    force_refresh: bool = False,
 ) -> ReputationReport:
     recommendation_run = session.scalar(
         select(RecommendationRun)
         .where(
             RecommendationRun.candidate_source == "openlibrary_cluster_discovery",
             RecommendationRun.status == "completed",
+            RecommendationRun.configuration["source_reference"][
+                "discovery_run_id"
+            ].as_integer()
+            == discovery_run_id,
         )
         .order_by(RecommendationRun.completed_at.desc(), RecommendationRun.id.desc())
     )
@@ -86,16 +92,23 @@ def enrich_discovery_reputation(
             }
         )
         existing_fetch = session.scalar(
-            select(ReputationFetch).where(
+            select(ReputationFetch)
+            .where(
                 ReputationFetch.provider == provider.name,
                 ReputationFetch.input_hash == input_hash,
             )
+            .order_by(ReputationFetch.fetched_at.desc(), ReputationFetch.id.desc())
         )
-        if existing_fetch is not None and existing_fetch.status in {
-            "succeeded",
-            "missed",
-            "ambiguous",
-        }:
+        if (
+            not force_refresh
+            and existing_fetch is not None
+            and existing_fetch.status
+            in {
+                "succeeded",
+                "missed",
+                "ambiguous",
+            }
+        ):
             cache_hits += 1
             counts[existing_fetch.status] += 1
             observation = session.scalar(
@@ -107,7 +120,8 @@ def enrich_discovery_reputation(
                 observations[candidate.work_id] = observation
             continue
         if (
-            existing_fetch is not None
+            not force_refresh
+            and existing_fetch is not None
             and existing_fetch.status == "failed"
             and _now() - existing_fetch.fetched_at < FAILURE_RETRY_AFTER
         ):
@@ -116,13 +130,18 @@ def enrich_discovery_reputation(
             continue
 
         fetched_at = _now()
+        attempt_provenance: dict[str, object] = {
+            "force_refresh": force_refresh,
+            "previous_fetch_id": existing_fetch.id if existing_fetch else None,
+        }
         try:
             external_requests += 1
             result = provider.lookup(lookup)
             external_requests += max(0, result.request_count - 1)
             decision = _select_candidate(lookup, result.candidates)
             status, selected, method, confidence, provenance = decision
-            fetch = existing_fetch or ReputationFetch(
+            provenance.update(attempt_provenance)
+            fetch = ReputationFetch(
                 work_id=candidate.work_id,
                 provider=provider.name,
                 request_key=result.request_key,
@@ -143,8 +162,7 @@ def enrich_discovery_reputation(
             fetch.raw_response = result.raw_response
             fetch.decision_provenance = provenance
             fetch.error_message = None
-            if existing_fetch is None:
-                session.add(fetch)
+            session.add(fetch)
             session.flush()
             counts[status] += 1
             if selected is not None:
@@ -160,25 +178,24 @@ def enrich_discovery_reputation(
                 )
                 if existing_fetch.error_message:
                     prior_errors.append(existing_fetch.error_message)
-                failed_fetch = existing_fetch
-            else:
-                failed_fetch = ReputationFetch(
-                    work_id=candidate.work_id,
-                    provider=provider.name,
-                    request_key=f"work:{candidate.work_id}",
-                    input_hash=input_hash,
-                    endpoint="/volumes",
-                    fetched_at=fetched_at,
-                    status="failed",
-                    raw_response=None,
-                    decision_provenance={},
-                )
-                session.add(failed_fetch)
+            failed_fetch = ReputationFetch(
+                work_id=candidate.work_id,
+                provider=provider.name,
+                request_key=f"work:{candidate.work_id}",
+                input_hash=input_hash,
+                endpoint="/volumes",
+                fetched_at=fetched_at,
+                status="failed",
+                raw_response=None,
+                decision_provenance={},
+            )
+            session.add(failed_fetch)
             failed_fetch.fetched_at = fetched_at
             failed_fetch.status = "failed"
             failed_fetch.decision_provenance = {
                 "model_version": MODEL_VERSION,
                 "prior_errors": prior_errors,
+                **attempt_provenance,
             }
             failed_fetch.error_message = str(exc)
             counts["failed"] += 1
@@ -333,9 +350,23 @@ def _apply_combined_scores(
     ).all()
     work_ids = [item.work_id for item in items]
     available = session.scalars(
-        select(ReputationObservation).where(ReputationObservation.work_id.in_(work_ids))
+        select(ReputationObservation)
+        .where(ReputationObservation.work_id.in_(work_ids))
+        .order_by(
+            ReputationObservation.fetched_at.desc(), ReputationObservation.id.desc()
+        )
     ).all()
+    seen: set[tuple[int, str, str, str]] = set()
     for available_observation in available:
+        identity = (
+            available_observation.work_id,
+            available_observation.provider,
+            available_observation.provider_book_id,
+            available_observation.model_version,
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
         current = observations.get(available_observation.work_id)
         if current is None or (
             available_observation.reputation_confidence,
